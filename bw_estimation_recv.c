@@ -63,27 +63,29 @@ int bind_local(char *local_addr, char *local_port, int socktype){
   return sockfd;
 }
 void usage(){
-    fprintf(stderr, "All command line arguments are required\n");
+    fprintf(stderr, "Supported command line arguments\n");
     fprintf(stderr, "-b : Bandwidth (in Mbit/s, only integers)\n");
     fprintf(stderr, "-t : Duration of test (in seconds)\n");
     fprintf(stderr, "-l : Payload length (in bytes)\n");
     fprintf(stderr, "-s : Source IP to bind to\n");
     fprintf(stderr, "-d : Destion IP\n");
     fprintf(stderr, "-p : Destion port\n");
+    fprintf(stderr, "-f : log file (optional)\n");
 }
 
 int main(int argc, char *argv[]){
     uint16_t bandwidth = 0, duration = 0, payloadLen = 0;
     uint8_t *srcIp = NULL, *senderIp = NULL, *senderPort = NULL;
+    uint8_t *logFileName = NULL;
     int32_t c, udpSockFd = -1;
 
-    //Arguments + values
+    //Mandatory arguments + values
     if(argc != 13){
         usage();
         exit(EXIT_FAILURE);
     }
 
-    while((c = getopt(argc, argv, "b:t:l:s:d:p:")) != -1){
+    while((c = getopt(argc, argv, "b:t:l:s:d:p:f:")) != -1){
         switch(c){
             case 'b':
                 bandwidth = atoi(optarg);
@@ -103,6 +105,9 @@ int main(int argc, char *argv[]){
             case 'p':
                 senderPort = optarg;
                 break;
+            case 'f':
+                logFileName = optarg;
+                break;
             default:
                 usage();
                 exit(EXIT_FAILURE);
@@ -114,6 +119,10 @@ int main(int argc, char *argv[]){
         usage();
         exit(EXIT_FAILURE);
     }
+
+    fprintf(stderr, "Will contact sender at %s:%s\n", senderIp, senderPort);
+    fprintf(stderr, "Bandwidth %d Mbit/s, Duration %d sec, Payload length %d bytes, Source IP %s\n", \
+            bandwidth, duration, payloadLen, srcIp);
 
     //Bind UDP socket
     if((udpSockFd = bind_local(srcIp, NULL, SOCK_DGRAM)) == -1){
