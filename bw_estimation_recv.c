@@ -110,6 +110,7 @@ int main(int argc, char *argv[]){
     int32_t c, udpSockFd = -1;
     struct sockaddr_storage senderAddr;
     socklen_t senderAddrLen = 0;
+    char addrPresentation[INET6_ADDRSTRLEN];
 
     //Mandatory arguments + values
     if(argc != 13){
@@ -150,7 +151,6 @@ int main(int argc, char *argv[]){
     }
 
     //Use stdout for all non-essential information
-    fprintf(stdout, "Will contact sender at %s:%s\n", senderIp, senderPort);
     fprintf(stdout, "Bandwidth %d Mbit/s, Duration %d sec, Payload length %d bytes, Source IP %s\n", \
             bandwidth, duration, payloadLen, srcIp);
 
@@ -169,7 +169,15 @@ int main(int argc, char *argv[]){
         exit(EXIT_FAILURE);
     }
 
-    //fprintf(stdout, "Family: %d Address length: %d\n", senderAddr.ss_family, senderAddrLen);
+    if(senderAddr.ss_family == AF_INET){
+        inet_ntop(AF_INET, &(((struct sockaddr_in *) &senderAddr)->sin_addr),\
+                addrPresentation, INET6_ADDRSTRLEN);
+        fprintf(stdout, "Sender (IPv4) %s:%s\n", addrPresentation, senderPort);
+    } else if(senderAddr.ss_family == AF_INET6){
+        inet_ntop(AF_INET6, &(((struct sockaddr_in6 *) &senderAddr)->sin6_addr),\
+                addrPresentation, INET6_ADDRSTRLEN);
+        fprintf(stdout, "Sender (IPv6) %s:%s\n", addrPresentation, senderPort);
+    }
 
     return 0;
 }
