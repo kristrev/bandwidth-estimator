@@ -15,6 +15,35 @@
 //If no reply is received 60 seconds after last reply, exit with failure
 //A similar approach is taken for the sender when it comes to END_SESSION
 //Removed log file, because writing to disk takes time. If required, pipe output
+//Check out this timestamping.c example in documentation/networking
+
+socklen_t fillSenderAddr(struct sockaddr_storage *senderAddr, char *senderIp, char *senderPort){
+    socklen_t addrLen = 0;
+    struct addrinfo hints, *servinfo;
+    int rv;
+
+    memset(&hints, 0, sizeof hints);
+    hints.ai_family = AF_UNSPEC;
+
+    if((rv = getaddrinfo(senderIp, senderPort, &hints, &servinfo)) != 0){
+        fprintf(stdout, "Getaddrinfo failed for sender address\n");
+        return 0;
+    }
+
+    if(servinfo != NULL){
+        memcpy(senderAddr, servinfo->ai_addr, servinfo->ai_addrlen);
+        addrLen = servinfo->ai_addrlen;
+    }
+
+    freeaddrinfo(servinfo);
+    return addrLen;
+}
+
+void eventLoop(int32_t udpSockFd, int16_t bandwidth, int16_t duration, \
+        int16_t payloadLen){
+
+
+}
 
 //Bind the local socket. Should work with both IPv4 and IPv6
 int bind_local(char *local_addr, char *local_port, int socktype){
@@ -63,6 +92,7 @@ int bind_local(char *local_addr, char *local_port, int socktype){
 
   return sockfd;
 }
+
 void usage(){
     fprintf(stderr, "Supported command line arguments\n");
     fprintf(stderr, "-b : Bandwidth (in Mbit/s, only integers)\n");
@@ -75,9 +105,11 @@ void usage(){
 
 int main(int argc, char *argv[]){
     uint16_t bandwidth = 0, duration = 0, payloadLen = 0;
-    uint8_t *srcIp = NULL, *senderIp = NULL, *senderPort = NULL;
+    char *srcIp = NULL, *senderIp = NULL, *senderPort = NULL;
     uint8_t *logFileName = NULL;
     int32_t c, udpSockFd = -1;
+    struct sockaddr_storage senderAddr;
+    socklen_t senderAddrLen = 0;
 
     //Mandatory arguments + values
     if(argc != 13){
@@ -117,17 +149,27 @@ int main(int argc, char *argv[]){
         exit(EXIT_FAILURE);
     }
 
-    fprintf(stderr, "Will contact sender at %s:%s\n", senderIp, senderPort);
-    fprintf(stderr, "Bandwidth %d Mbit/s, Duration %d sec, Payload length %d bytes, Source IP %s\n", \
+    //Use stdout for all non-essential information
+    fprintf(stdout, "Will contact sender at %s:%s\n", senderIp, senderPort);
+    fprintf(stdout, "Bandwidth %d Mbit/s, Duration %d sec, Payload length %d bytes, Source IP %s\n", \
             bandwidth, duration, payloadLen, srcIp);
 
     //Bind UDP socket
     if((udpSockFd = bind_local(srcIp, NULL, SOCK_DGRAM)) == -1){
-        fprintf(stderr, "Binding to local IP failed\n");
+        fprintf(stdout, "Binding to local IP failed\n");
         exit(EXIT_FAILURE);
     }
 
-    fprtinf(stderr, "UDP socket %d\n", udpSockFd);
+    fprintf(stdout, "UDP socket %d\n", udpSockFd);
+
+    memset(&senderAddr, 0, sizeof(struct sockaddr_storage));
+    
+    if(!(senderAddrLen = fillSenderAddr(&senderAddr, senderIp, senderPort))){
+        fprintf(stdout, "Could not fill sender address struct. Is the address correct?\n");
+        exit(EXIT_FAILURE);
+    }
+
+    //fprintf(stdout, "Family: %d Address length: %d\n", senderAddr.ss_family, senderAddrLen);
 
     return 0;
 }
