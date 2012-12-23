@@ -58,7 +58,14 @@ void networkLoop(int32_t udpSockFd, int16_t bandwidth, int16_t duration, \
     msg.msg_namelen = senderAddrLen;
     msg.msg_iov = &iov;
     msg.msg_iovlen = 1;
-    
+   
+    //Define three states, STARTING, RECEIVING, ENDING
+    //- STARTING: Send NEW_SESSION every TIMEOUT second, up to N times. Abort if
+    //no reply is received X seconds after last message
+    //- RECEIVING: SESSION started, receiving data. Wait DURATION seconds for
+    //data, move to ENDING after DURATION has passed. Abort if no packets have
+    //been received. Reset DURATION upon first packet
+    //- ENDING: Wait ENDING_TIMEOUT seconds before aborting.
 
     numbytes = sendmsg(udpSockFd, &msg, 0);
     fprintf(stderr, "Sent %zd bytes\n", numbytes);
