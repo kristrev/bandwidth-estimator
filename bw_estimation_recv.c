@@ -14,6 +14,7 @@
 //This request is sent 10 times, five seconds apart, unless a reply is received
 //If no reply is received 60 seconds after last reply, exit with failure
 //A similar approach is taken for the sender when it comes to END_SESSION
+//Removed log file, because writing to disk takes time. If required, pipe output
 
 //Bind the local socket. Should work with both IPv4 and IPv6
 int bind_local(char *local_addr, char *local_port, int socktype){
@@ -70,7 +71,6 @@ void usage(){
     fprintf(stderr, "-s : Source IP to bind to\n");
     fprintf(stderr, "-d : Destion IP\n");
     fprintf(stderr, "-p : Destion port\n");
-    fprintf(stderr, "-f : log file (optional)\n");
 }
 
 int main(int argc, char *argv[]){
@@ -85,7 +85,7 @@ int main(int argc, char *argv[]){
         exit(EXIT_FAILURE);
     }
 
-    while((c = getopt(argc, argv, "b:t:l:s:d:p:f:")) != -1){
+    while((c = getopt(argc, argv, "b:t:l:s:d:p:")) != -1){
         switch(c){
             case 'b':
                 bandwidth = atoi(optarg);
@@ -104,9 +104,6 @@ int main(int argc, char *argv[]){
                 break;
             case 'p':
                 senderPort = optarg;
-                break;
-            case 'f':
-                logFileName = optarg;
                 break;
             default:
                 usage();
@@ -129,6 +126,8 @@ int main(int argc, char *argv[]){
         fprintf(stderr, "Binding to local IP failed\n");
         exit(EXIT_FAILURE);
     }
+
+    fprtinf(stderr, "UDP socket %d\n", udpSockFd);
 
     return 0;
 }
