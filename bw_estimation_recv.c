@@ -6,6 +6,7 @@
 #include <sys/socket.h>
 #include <netdb.h>
 #include <string.h>
+#include <arpa/inet.h>
 
 #include "bw_estimation_packets.h"
 
@@ -39,10 +40,28 @@ socklen_t fillSenderAddr(struct sockaddr_storage *senderAddr, char *senderIp, ch
     return addrLen;
 }
 
-void eventLoop(int32_t udpSockFd, int16_t bandwidth, int16_t duration, \
-        int16_t payloadLen){
+void networkLoop(int32_t udpSockFd, int16_t bandwidth, int16_t duration, \
+        int16_t payloadLen, struct sockaddr_storage *senderAddr, socklen_t senderAddrLen){
+    struct msghdr msg;
+    struct iovec iov;
 
+    uint8_t buf[1400] = {1};
+    ssize_t numbytes = 0;
 
+    memset(&msg, 0, sizeof(struct msghdr));
+    memset(&iov, 0, sizeof(struct iovec));
+
+    iov.iov_base = buf;
+    iov.iov_len = sizeof(buf);
+
+    msg.msg_name = (void *) senderAddr;
+    msg.msg_namelen = senderAddrLen;
+    msg.msg_iov = &iov;
+    msg.msg_iovlen = 1;
+    
+
+    numbytes = sendmsg(udpSockFd, &msg, 0);
+    fprintf(stderr, "Sent %zd bytes\n", numbytes);
 }
 
 //Bind the local socket. Should work with both IPv4 and IPv6
@@ -106,7 +125,6 @@ void usage(){
 int main(int argc, char *argv[]){
     uint16_t bandwidth = 0, duration = 0, payloadLen = 0;
     char *srcIp = NULL, *senderIp = NULL, *senderPort = NULL;
-    uint8_t *logFileName = NULL;
     int32_t c, udpSockFd = -1;
     struct sockaddr_storage senderAddr;
     socklen_t senderAddrLen = 0;
@@ -178,6 +196,8 @@ int main(int argc, char *argv[]){
                 addrPresentation, INET6_ADDRSTRLEN);
         fprintf(stdout, "Sender (IPv6) %s:%s\n", addrPresentation, senderPort);
     }
+
+    networkLoop(udpSockFd, bandwidth, duration, payloadLen, &senderAddr, senderAddrLen);
 
     return 0;
 }
