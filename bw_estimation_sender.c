@@ -22,6 +22,7 @@ typedef enum{
 //Make multithreaded. Need a hashmap here
 struct threadInfo{
     threadStatus status;
+    int32_t udpSockFd;
     struct sockaddr_storage source;
     uint16_t bandwidth;
     uint16_t duration;
@@ -84,6 +85,7 @@ int bind_local(char *local_addr, char *local_port, int socktype){
 }
 
 void *sendLoop(void *data){
+    //Variables used to compute and keep the desired bandwidth
     struct timeval t0_p, t1_p;
     time_t t0, t1;
     double pkts_per_sec = 0; 
@@ -91,9 +93,19 @@ void *sendLoop(void *data){
     double iat = 0;
     double adjust = 0;
 
+    struct msghdr msg;
+    struct iovec iov;
+    uint8_t buf[MAX_PAYLOAD_LEN] = {DATA};
+
     struct threadInfo *threadInfo = (struct threadInfo *) data;
     fprintf(stdout, "Started thread\n");
 
+    memset(&msg, 0, sizeof(struct msghdr));
+    memset(&iov, 0, sizeof(struct iovec));
+    msg.msg_iov = &iov;
+    msg.msg_iovlen = 1;
+    iov.iov_base = buf;
+ 
     while(1){
         pthread_mutex_lock(&(threadInfo->newSessionMutex));
         if(threadInfo->status == PAUSED)
@@ -102,6 +114,10 @@ void *sendLoop(void *data){
 
         //Sanity
         assert(threadInfo->status == RUNNING);
+
+        msg.msg_name = (void *) &(threadInfo->source);
+        msg.msg_namelen = sizeof(struct sockaddr_storage);
+        iov.iov_len = threadInfo->payloadLen;
 
         pkts_per_sec = (threadInfo->bandwidth * 1000 * 1000) / (double) (threadInfo->payloadLen * 8);
         desired_iat = 1000000 / pkts_per_sec; //IAT is microseconds, sufficient resolution
@@ -125,6 +141,7 @@ void *sendLoop(void *data){
             if(adjust > 0 || iat > 0)
               iat += adjust;
 
+            sendmsg(threadInfo->udpSockFd, &msg, 0);
             //Check if it is time to abort
             t1 = time(NULL);
             if(difftime(t1,t0) > threadInfo->duration){
@@ -136,6 +153,7 @@ void *sendLoop(void *data){
         }
 
         fprintf(stdout, "Done with sending\n");
+        //Send end session
         threadInfo->status = PAUSED;
     }
 }
@@ -163,6 +181,7 @@ void networkEventLoop(int32_t udpSockFd){
     for(i = 0; i<NUM_THREADS; i++){
         threadInfos[i] = (struct threadInfo*) malloc(sizeof(struct threadInfo));
         threadInfos[i]->status = PAUSED;
+        threadInfos[i]->udpSockFd = udpSockFd;
         pthread_cond_init(&(threadInfos[i]->newSession), NULL);
         pthread_mutex_init(&(threadInfos[i]->newSessionMutex), NULL);
 
