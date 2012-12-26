@@ -7,10 +7,29 @@
 #include <netdb.h>
 #include <string.h>
 #include <stdlib.h>
+#include <pthread.h>
+#include <assert.h>
 
 #include "bw_estimation_packets.h"
 
+#define NUM_THREADS 4
+
+typedef enum{
+    PAUSED,
+    RUNNING
+} threadStatus;
+
 //Make multithreaded. Need a hashmap here
+struct threadInfo{
+    threadStatus status;
+    size_t sourceHash;
+    struct sockaddr_storage source;
+    uint16_t bandwidth;
+    uint16_t duration;
+    uint16_t payloadLen;
+    pthread_cond_t newSession;
+    pthread_mutex_t newSessionMutex;
+};
 
 //Bind the local socket. Should work with both IPv4 and IPv6
 int bind_local(char *local_addr, char *local_port, int socktype){
@@ -65,12 +84,30 @@ int bind_local(char *local_addr, char *local_port, int socktype){
   return sockfd;
 }
 
+void *sendLoop(void *data){
+    struct threadInfo *threadInfo = (struct threadInfo *) data;
+    fprintf(stdout, "Started thread\n");
+
+    while(1){
+        pthread_mutex_lock(&(threadInfo->newSessionMutex));
+        if(threadInfo->status == PAUSED)
+            pthread_cond_wait(&(threadInfo->newSession), &(threadInfo->newSessionMutex));
+        pthread_mutex_unlock(&(threadInfo->newSessionMutex));
+
+        assert(threadInfo->status == RUNNING);
+        
+    }
+}
+
 void networkEventLoop(int32_t udpSockFd){
     fd_set recvSet, recvSetCopy;
     int32_t fdmax = udpSockFd + 1;
-    int32_t retval = 0;
+    int32_t retval = 0, i;
     ssize_t numbytes = 0;
     struct pktHdr *hdr;
+
+    pthread_t threads[NUM_THREADS];
+    struct threadInfo *threadInfos[NUM_THREADS];
 
     struct msghdr msg;
     struct iovec iov;
@@ -79,6 +116,16 @@ void networkEventLoop(int32_t udpSockFd){
     char addrPresentation[INET6_ADDRSTRLEN];
     uint16_t recvPort = 0;
     struct dataPkt *pkt = NULL;
+
+    //Initialize and start threads whatever has to do with the threads
+    for(i = 0; i<NUM_THREADS; i++){
+        threadInfos[i] = (struct threadInfo*) malloc(sizeof(struct threadInfo));
+        threadInfos[i]->status = PAUSED;
+        pthread_cond_init(&(threadInfos[i]->newSession), NULL);
+        pthread_mutex_init(&(threadInfos[i]->newSessionMutex), NULL);
+
+        pthread_create(&threads[i], NULL, sendLoop, (void *) threadInfos[i]);
+    }
 
     memset(&msg, 0, sizeof(struct msghdr));
     memset(&iov, 0, sizeof(struct iovec));
@@ -121,9 +168,9 @@ void networkEventLoop(int32_t udpSockFd){
 
             if(hdr->type == NEW_SESSION){
                 fprintf(stdout, "Request for new session from %s:%u\n", addrPresentation, recvPort);
-                pkt = (struct dataPkt *) buf;
-                pkt->type = DATA;
-                sendmsg(udpSockFd, &msg, 0);
+                //pkt = (struct dataPkt *) buf;
+                //pkt->type = DATA;
+                //sendmsg(udpSockFd, &msg, 0);
             } else {
                 fprintf(stdout, "Unknown packet type\n");
             }
