@@ -1,10 +1,14 @@
 #include <stdio.h>
 #include <stdint.h>
+#include <sys/times.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <unistd.h>
 #include <netdb.h>
 #include <string.h>
+#include <stdlib.h>
+
+#include "bw_estimation_packets.h"
 
 //Make multithreaded. Need a hashmap here
 
@@ -61,14 +65,97 @@ int bind_local(char *local_addr, char *local_port, int socktype){
   return sockfd;
 }
 
+void networkEventLoop(int32_t udpSockFd){
+    fd_set recvSet, recvSetCopy;
+    int32_t fdmax = udpSockFd + 1;
+    int32_t retval = 0;
+    ssize_t numbytes = 0;
+
+    struct msghdr msg;
+    struct iovec iov;
+    uint8_t buf[MAX_PAYLOAD_LEN] = {0};
+    struct sockaddr_storage senderAddr;
+ 
+    memset(&msg, 0, sizeof(struct msghdr));
+    memset(&iov, 0, sizeof(struct iovec));
+    iov.iov_base = buf;
+    iov.iov_len = sizeof(buf);
+
+    msg.msg_name = (void *) &senderAddr;
+    msg.msg_namelen = sizeof(struct sockaddr_storage);
+    msg.msg_iov = &iov;
+    msg.msg_iovlen = 1;
+
+    FD_ZERO(&recvSet);
+    FD_ZERO(&recvSetCopy);
+    FD_SET(udpSockFd, &recvSet);
+
+    while(1){
+        recvSetCopy = recvSet;
+        retval = select(fdmax, &recvSetCopy, NULL, NULL, NULL);
+
+        if(retval < 0){
+            fprintf(stdout, "Select failed, aborting\n");
+            close(udpSockFd);
+            exit(EXIT_FAILURE);
+        } else {
+            numbytes = recvmsg(udpSockFd, &msg, 0); 
+            fprintf(stdout, "Received %zd bytes\n", numbytes);
+        }
+    }
+}
+
 void usage(){
-    fprintf(stdout, "Supported command line arguments\n");
+    fprintf(stdout, "Supported command line arguments (all required)\n");
     fprintf(stdout, "-s : Source IP to bind to\n");
     fprintf(stdout, "-p : Source port\n");
 }
 
 int main(int argc, char *argv[]){
-    fprintf(stderr, "Hei\n");
+    char *srcIp = NULL, *srcPort = NULL;
+    int32_t c;
+    int32_t udpSockFd, tcpSockFd;
 
+    //Mandatory arguments + values
+    if(argc != 5){
+        usage();
+        exit(EXIT_FAILURE);
+    }
+
+    while((c = getopt(argc, argv, "s:p:")) != -1){
+        switch(c){
+            case 's':
+                srcIp = optarg;
+                break;
+            case 'p':
+                srcPort = optarg;
+                break;
+            default:
+                usage();
+                exit(EXIT_FAILURE);
+        }
+    }
+
+    if(srcIp == NULL || srcPort == NULL){
+        usage();
+        exit(EXIT_FAILURE);
+    } else {
+        fprintf(stdout, "Source IP: %s:%s\n", srcIp, srcPort);
+    }
+
+    if((udpSockFd = bind_local(srcIp, srcPort, SOCK_DGRAM)) == -1){
+        fprintf(stdout, "Could not create UDP socket\n");
+        exit(EXIT_FAILURE);
+    }
+
+#if 0
+    //I can have one UDP and one TCP socket bound to same port
+    if((tcpSockFd = bind_local(srcIp, srcPort, SOCK_STREAM)) == -1){
+        fprintf(stdout, "Could not create TCP socket\n");
+        exit(EXIT_FAILURE);
+    }
+#endif
+
+    networkEventLoop(udpSockFd);
     return 0;
 }

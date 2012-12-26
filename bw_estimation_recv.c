@@ -55,7 +55,7 @@ void networkLoop(int32_t udpSockFd, int16_t bandwidth, int16_t duration, \
     struct iovec iov;
     bwrecv_state state = STARTING; 
 
-    uint8_t buf[1400] = {0};
+    uint8_t buf[MAX_PAYLOAD_LEN] = {0};
     ssize_t numbytes = 0;
     uint8_t consecutiveRetrans = 0;
     uint8_t cmsg_buf[sizeof(struct cmsghdr) + sizeof(struct timespec)] = {0};
@@ -162,6 +162,7 @@ int bind_local(char *local_addr, char *local_port, int socktype){
       continue;
     }
 
+    //TODO: Improve to use hardware timestamps, if available
     if(setsockopt(sockfd, SOL_SOCKET, SO_TIMESTAMPNS, &yes, sizeof(int)) == -1) {
       close(sockfd);
       perror("Setsockopt (timestamp)");
@@ -240,6 +241,11 @@ int main(int argc, char *argv[]){
     if(bandwidth == 0 || duration == 0 || payloadLen == 0 || srcIp == NULL || \
             senderIp == NULL || senderPort == NULL){
         usage();
+        exit(EXIT_FAILURE);
+    }
+
+    if(payloadLen > MAX_PAYLOAD_LEN){
+        fprintf(stdout, "Payload length exceeds limit (%d)\n", MAX_PAYLOAD_LEN);
         exit(EXIT_FAILURE);
     }
 

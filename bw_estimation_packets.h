@@ -1,5 +1,7 @@
 #include <stdint.h>
 
+#define MAX_PAYLOAD_LEN 1500
+
 typedef enum{
     NEW_SESSION=0, //The sender should start a new send session
     DATA, //Pkt shall be used for measurement
