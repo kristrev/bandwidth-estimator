@@ -84,6 +84,13 @@ int bind_local(char *local_addr, char *local_port, int socktype){
 }
 
 void *sendLoop(void *data){
+    struct timeval t0_p, t1_p;
+    time_t t0, t1;
+    double pkts_per_sec = 0; 
+    double desired_iat = 0;
+    double iat = 0;
+    double adjust = 0;
+
     struct threadInfo *threadInfo = (struct threadInfo *) data;
     fprintf(stdout, "Started thread\n");
 
@@ -93,8 +100,43 @@ void *sendLoop(void *data){
             pthread_cond_wait(&(threadInfo->newSession), &(threadInfo->newSessionMutex));
         pthread_mutex_unlock(&(threadInfo->newSessionMutex));
 
+        //Sanity
         assert(threadInfo->status == RUNNING);
-        
+
+        pkts_per_sec = (threadInfo->bandwidth * 1000 * 1000) / (double) (threadInfo->payloadLen * 8);
+        desired_iat = 1000000 / pkts_per_sec; //IAT is microseconds, sufficient resolution
+        fprintf(stdout, "Bandiwdth of %d Mbit/s, duration %ds\n", threadInfo->bandwidth, threadInfo->duration);
+        fprintf(stdout, "Sending %f packets/s, IAT %f microseconds\n", pkts_per_sec, desired_iat);
+    
+        t0 = time(NULL);
+        gettimeofday(&t0_p, NULL);
+
+        while(1){
+            gettimeofday(&t1_p, NULL);  
+            //See notebook for order, goal is that difference should be 0. I want to find how much more/less I should
+            //sleep this time to provide the desired IAT. That adjustment is desired_iat + the time it took for the last packet
+            //to be processed.
+            //If it it took longer than the desired IAT, the adjustment will be negative and "this" packet have to sleep less
+            //If it took a shorter time than desiread IAT, this packet will have to be delayed a little bit
+            adjust = desired_iat + (((t0_p.tv_sec - t1_p.tv_sec) * 1000000) + (t0_p.tv_usec - t1_p.tv_usec));
+            t0_p.tv_sec = t1_p.tv_sec;
+            t0_p.tv_usec = t1_p.tv_usec;
+
+            if(adjust > 0 || iat > 0)
+              iat += adjust;
+
+            //Check if it is time to abort
+            t1 = time(NULL);
+            if(difftime(t1,t0) > threadInfo->duration){
+                break;
+            }
+
+            if(iat > 0)
+                usleep(iat);
+        }
+
+        fprintf(stdout, "Done with sending\n");
+        threadInfo->status = PAUSED;
     }
 }
 
@@ -170,6 +212,10 @@ void networkEventLoop(int32_t udpSockFd){
 
                 //Check that I have not already started the thread belonging to
                 //this session
+                //The checks in this and the next for-loop are not thread-safe,
+                //but it doesn't matter as the behvaior is not critical.
+                //Wors-case, the session request will be accepted on the next
+                //request
                 for(i = 0; i<NUM_THREADS; i++){
                     if(threadInfos[i]->status == RUNNING && \
                             threadInfos[i]->source.ss_family == senderAddr.ss_family){
@@ -196,7 +242,10 @@ void networkEventLoop(int32_t udpSockFd){
                         threadInfos[i]->duration = newSPkt->duration;
                         threadInfos[i]->bandwidth = newSPkt->bw;
                         threadInfos[i]->payloadLen = newSPkt->payload_len;
+                        pthread_mutex_lock(&(threadInfos[i]->newSessionMutex));
                         threadInfos[i]->status = RUNNING;
+                        pthread_cond_signal(&(threadInfos[i]->newSession));
+                        pthread_mutex_unlock(&(threadInfos[i]->newSessionMutex));
                         fprintf(stdout, "Created a new session for %s:%d\n", addrPresentation, recvPort);
                         break;
                     }
