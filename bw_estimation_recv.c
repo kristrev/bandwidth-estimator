@@ -58,6 +58,7 @@ void networkLoop(int32_t udpSockFd, int16_t bandwidth, int16_t duration, \
     uint8_t buf[1400] = {0};
     ssize_t numbytes = 0;
     uint8_t consecutiveRetrans = 0;
+    uint8_t cmsg_buf[sizeof(struct cmsghdr) + sizeof(struct timespec)] = {0};
 
     //Configure the variables used for the select
     FD_ZERO(&recvSet);
@@ -68,12 +69,16 @@ void networkLoop(int32_t udpSockFd, int16_t bandwidth, int16_t duration, \
     memset(&iov, 0, sizeof(struct iovec));
 
     iov.iov_base = buf;
+
+    //TODO: Fix so that I now longer waste space, right now I always send
+    //len(buf) bytes
     iov.iov_len = sizeof(buf);
 
     msg.msg_name = (void *) senderAddr;
     msg.msg_namelen = senderAddrLen;
     msg.msg_iov = &iov;
     msg.msg_iovlen = 1;
+    msg.msg_control = (void *) cmsg_buf;
  
     //Send first NEW_SESSION-packet
     struct newSessionPkt *sessionPkt = (struct newSessionPkt *) buf; 
@@ -87,7 +92,7 @@ void networkLoop(int32_t udpSockFd, int16_t bandwidth, int16_t duration, \
         fprintf(stdout, "Failed to send initial NEW_SESSION message\n");
         exit(EXIT_FAILURE);
     } else {
-        fprintf(stdout, "Sendt first NEW_SESSION message\n");
+        fprintf(stdout, "Sent first NEW_SESSION message\n");
     }
 
     while(1){
@@ -118,6 +123,8 @@ void networkLoop(int32_t udpSockFd, int16_t bandwidth, int16_t duration, \
                 sendmsg(udpSockFd, &msg, 0);
             }
         } else {
+            msg.msg_controllen = sizeof(cmsg_buf);
+            numbytes = recvmsg(udpSockFd, &msg, 0); 
             //Recv packet
         }
 
