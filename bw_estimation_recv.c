@@ -151,10 +151,15 @@ int bind_local(char *local_addr, char *local_port, int socktype){
 
     if(setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) == -1) {
       close(sockfd);
-      perror("Setsockopt");
+      perror("Setsockopt (reuseaddr)");
       continue;
     }
 
+    if(setsockopt(sockfd, SOL_SOCKET, SO_TIMESTAMPNS, &yes, sizeof(int)) == -1) {
+      close(sockfd);
+      perror("Setsockopt (timestamp)");
+      continue;
+    }
     if(bind(sockfd, p->ai_addr, p->ai_addrlen) == -1){
       close(sockfd);
       perror("Bind (local)");
