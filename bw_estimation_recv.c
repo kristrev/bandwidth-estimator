@@ -72,7 +72,7 @@ void networkLoop(int32_t udpSockFd, int16_t bandwidth, int16_t duration, \
 
     //TODO: Fix so that I now longer waste space, right now I always send
     //len(buf) bytes
-    iov.iov_len = sizeof(buf);
+    iov.iov_len = sizeof(struct newSessionPkt);
 
     msg.msg_name = (void *) senderAddr;
     msg.msg_namelen = senderAddrLen;
@@ -124,6 +124,7 @@ void networkLoop(int32_t udpSockFd, int16_t bandwidth, int16_t duration, \
             }
         } else {
             msg.msg_controllen = sizeof(cmsg_buf);
+            iov.iov_len = sizeof(buf);
             numbytes = recvmsg(udpSockFd, &msg, 0); 
             //Recv packet
         }
