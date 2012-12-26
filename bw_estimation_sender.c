@@ -78,6 +78,7 @@ void networkEventLoop(int32_t udpSockFd){
     struct sockaddr_storage senderAddr;
     char addrPresentation[INET6_ADDRSTRLEN];
     uint16_t recvPort = 0;
+    struct dataPkt *pkt = NULL;
 
     memset(&msg, 0, sizeof(struct msghdr));
     memset(&iov, 0, sizeof(struct iovec));
@@ -120,6 +121,9 @@ void networkEventLoop(int32_t udpSockFd){
 
             if(hdr->type == NEW_SESSION){
                 fprintf(stdout, "Request for new session from %s:%u\n", addrPresentation, recvPort);
+                pkt = (struct dataPkt *) buf;
+                pkt->type = DATA;
+                sendmsg(udpSockFd, &msg, 0);
             } else {
                 fprintf(stdout, "Unknown packet type\n");
             }

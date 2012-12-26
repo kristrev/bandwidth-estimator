@@ -26,7 +26,7 @@ struct newSessionPkt{
 
 struct dataPkt{
     BW_MANDATORY;
-    uint8_t *buf; //Can't use a constant as buffer size, it is set at runtime
+    //Buffers are MAX_PAYLOAD_LEN, so I dont need a separate buf here
 };
 
 //Not sure if I need more here

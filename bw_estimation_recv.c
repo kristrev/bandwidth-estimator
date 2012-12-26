@@ -59,6 +59,7 @@ void networkLoop(int32_t udpSockFd, int16_t bandwidth, int16_t duration, \
     ssize_t numbytes = 0;
     uint8_t consecutiveRetrans = 0;
     uint8_t cmsg_buf[sizeof(struct cmsghdr) + sizeof(struct timespec)] = {0};
+    struct pktHdr *hdr = NULL;
 
     //Configure the variables used for the select
     FD_ZERO(&recvSet);
@@ -126,7 +127,18 @@ void networkLoop(int32_t udpSockFd, int16_t bandwidth, int16_t duration, \
             msg.msg_controllen = sizeof(cmsg_buf);
             iov.iov_len = sizeof(buf);
             numbytes = recvmsg(udpSockFd, &msg, 0); 
+
+            //fprintf(stdout, "Received a packet\n");
             //Recv packet
+            hdr = (struct pktHdr*) buf;
+
+            if(hdr->type == DATA){
+                state = RECEIVING;
+                fprintf(stdout, "Got data\n");
+            } else if(hdr->type == END_SESSION){
+                fprintf(stdout, "End session\n");
+                break;
+            }
         }
 
     }
