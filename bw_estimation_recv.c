@@ -58,7 +58,9 @@ void networkLoop(int32_t udpSockFd, int16_t bandwidth, int16_t duration, \
     uint8_t buf[MAX_PAYLOAD_LEN] = {0};
     ssize_t numbytes = 0;
     uint8_t consecutiveRetrans = 0;
+    struct cmsghdr *cmsg;
     uint8_t cmsg_buf[sizeof(struct cmsghdr) + sizeof(struct timespec)] = {0};
+    struct timespec *recvTime;
     struct pktHdr *hdr = NULL;
 
     //Configure the variables used for the select
@@ -110,11 +112,10 @@ void networkLoop(int32_t udpSockFd, int16_t bandwidth, int16_t duration, \
         retval = select(fdmax, &recvSetCopy, NULL, NULL, &tv);
 
         if(retval == 0){
-            //Reason for using EXIT_FAILURE here is that these are not clean
-            //resets, something went wrong
             if(state == RECEIVING){
+                //Might be able to compute somethig, therefore break
                 fprintf(stdout, "%d seconds passed without any traffic, aborting\n", duration); 
-                exit(EXIT_FAILURE);
+                break;
             } else if(consecutiveRetrans == RETRANSMISSION_THRESHOLD){
                 fprintf(stdout, "Did not receive any reply to NEW_SESSION, aborting\n");
                 exit(EXIT_FAILURE);
@@ -127,14 +128,15 @@ void networkLoop(int32_t udpSockFd, int16_t bandwidth, int16_t duration, \
             msg.msg_controllen = sizeof(cmsg_buf);
             iov.iov_len = sizeof(buf);
             numbytes = recvmsg(udpSockFd, &msg, 0); 
-
-            //fprintf(stdout, "Received a packet\n");
-            //Recv packet
             hdr = (struct pktHdr*) buf;
 
             if(hdr->type == DATA){
                 state = RECEIVING;
-                fprintf(stdout, "Got data\n");
+                cmsg = CMSG_FIRSTHDR(&msg);
+                if(cmsg->cmsg_level == SOL_SOCKET && cmsg->cmsg_type == SO_TIMESTAMPNS){
+                    recvTime = (struct timespec *) CMSG_DATA(cmsg);
+                    fprintf(stderr, "%lu.%lu %zd\n", recvTime->tv_sec, recvTime->tv_nsec, numbytes);
+                }
             } else if(hdr->type == END_SESSION){
                 fprintf(stdout, "End session\n");
                 break;
@@ -143,8 +145,7 @@ void networkLoop(int32_t udpSockFd, int16_t bandwidth, int16_t duration, \
 
     }
 
-    numbytes = sendmsg(udpSockFd, &msg, 0);
-    fprintf(stdout, "Sent %zd bytes\n", numbytes);
+    //Computations?
 }
 
 //Bind the local socket. Should work with both IPv4 and IPv6
