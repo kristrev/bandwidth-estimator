@@ -76,9 +76,13 @@ void networkEventLoop(int32_t udpSockFd){
     struct iovec iov;
     uint8_t buf[MAX_PAYLOAD_LEN] = {0};
     struct sockaddr_storage senderAddr;
- 
+    char addrPresentation[INET6_ADDRSTRLEN];
+    uint16_t recvPort = 0;
+
     memset(&msg, 0, sizeof(struct msghdr));
     memset(&iov, 0, sizeof(struct iovec));
+    memset(&senderAddr, 0, sizeof(struct sockaddr_storage));
+
     iov.iov_base = buf;
     iov.iov_len = sizeof(buf);
 
@@ -104,8 +108,18 @@ void networkEventLoop(int32_t udpSockFd){
             fprintf(stdout, "Received %zd bytes\n", numbytes);
             hdr = (struct pktHdr *) buf;
 
+            if(senderAddr.ss_family == AF_INET){
+                inet_ntop(AF_INET, &(((struct sockaddr_in *) &senderAddr)->sin_addr),\
+                        addrPresentation, INET6_ADDRSTRLEN);
+                recvPort = ntohs(((struct sockaddr_in *) &senderAddr)->sin_port);
+            } else if(senderAddr.ss_family == AF_INET6){
+                inet_ntop(AF_INET6, &(((struct sockaddr_in6 *) &senderAddr)->sin6_addr),\
+                        addrPresentation, INET6_ADDRSTRLEN);
+                recvPort = ntohs(((struct sockaddr_in6 *) &senderAddr)->sin6_port);
+            }
+
             if(hdr->type == NEW_SESSION){
-                fprintf(stdout, "Request for new session\n");
+                fprintf(stdout, "Request for new session from %s:%u\n", addrPresentation, recvPort);
             } else {
                 fprintf(stdout, "Unknown packet type\n");
             }
