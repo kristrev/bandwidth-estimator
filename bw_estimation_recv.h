@@ -3,6 +3,7 @@
 
 #define NEW_SESSION_TIMEOUT 5 //Timeout between new session packets
 #define RETRANSMISSION_THRESHOLD 5
+#define DEFAULT_TIMEOUT 60 //Timeout waiting for the next data pack/END_SESSION
 
 //Define three states, STARTING, RECEIVING, ENDING
 //- STARTING: Send NEW_SESSION every TIMEOUT second, up to N times. Abort if

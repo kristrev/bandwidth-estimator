@@ -50,6 +50,9 @@ void networkLoop(int32_t udpSockFd, int16_t bandwidth, int16_t duration, \
     int32_t fdmax = udpSockFd + 1;
     int32_t retval = 0;
     struct timeval tv;
+    size_t totalNumberBytes = 0;
+    struct timespec t0, t1;
+    double dataInterval;
 
     struct msghdr msg;
     struct iovec iov;
@@ -105,7 +108,7 @@ void networkLoop(int32_t udpSockFd, int16_t bandwidth, int16_t duration, \
             tv.tv_usec = 0;
         } else {
             //The timeout is reset for each data packet I receive
-            tv.tv_sec = duration;
+            tv.tv_sec = duration > DEFAULT_TIMEOUT ? duration : DEFAULT_TIMEOUT; 
             tv.tv_usec = 0;
         }
 
@@ -131,21 +134,32 @@ void networkLoop(int32_t udpSockFd, int16_t bandwidth, int16_t duration, \
             hdr = (struct pktHdr*) buf;
 
             if(hdr->type == DATA){
-                state = RECEIVING;
                 cmsg = CMSG_FIRSTHDR(&msg);
                 if(cmsg->cmsg_level == SOL_SOCKET && cmsg->cmsg_type == SO_TIMESTAMPNS){
                     recvTime = (struct timespec *) CMSG_DATA(cmsg);
                     fprintf(stderr, "%lu.%lu %zd\n", recvTime->tv_sec, recvTime->tv_nsec, numbytes);
                 }
+
+                if(state == STARTING){
+                    memcpy(&t0, recvTime, sizeof(struct timespec));
+                    state = RECEIVING;
+                }
+
+                memcpy(&t1, recvTime, sizeof(struct timespec));
+                totalNumberBytes += numbytes;
             } else if(hdr->type == END_SESSION){
                 fprintf(stdout, "End session\n");
                 break;
+            } else {
+                fprtinf(stdout, "Unkown\n");
             }
         }
 
     }
 
+    dataInterval = (t1.tv_sec - t0.tv_sec) + ((t1.tv_nsec - t0.tv_nsec)/1000000000.0);
     //Computations?
+    fprintf(stdout, "Received %zd bytes in %.2f seconds\n", totalNumberBytes, dataInterval);
 }
 
 //Bind the local socket. Should work with both IPv4 and IPv6

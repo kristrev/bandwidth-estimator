@@ -13,6 +13,7 @@
 #include "bw_estimation_packets.h"
 
 #define NUM_THREADS 4
+#define NUM_END_SESSION_PKTS 10
 
 typedef enum{
     PAUSED,
@@ -92,6 +93,7 @@ void *sendLoop(void *data){
     double desired_iat = 0;
     double iat = 0;
     double adjust = 0;
+    int32_t i;
 
     struct msghdr msg;
     struct iovec iov;
@@ -153,6 +155,11 @@ void *sendLoop(void *data){
                 usleep(iat);
         }
 
+        //Easy solution for sending end_session
+        buf[0] = END_SESSION;
+        for(i = 0; i<NUM_END_SESSION_PKTS; i++)
+            sendmsg(threadInfo->udpSockFd, &msg, 0);
+        
         fprintf(stdout, "Done with sending\n");
         //Send end session
         threadInfo->status = PAUSED;
