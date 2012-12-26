@@ -22,7 +22,6 @@ typedef enum{
 //Make multithreaded. Need a hashmap here
 struct threadInfo{
     threadStatus status;
-    size_t sourceHash;
     struct sockaddr_storage source;
     uint16_t bandwidth;
     uint16_t duration;
@@ -105,6 +104,7 @@ void networkEventLoop(int32_t udpSockFd){
     int32_t retval = 0, i;
     ssize_t numbytes = 0;
     struct pktHdr *hdr;
+    struct newSessionPkt *newSPkt;
 
     pthread_t threads[NUM_THREADS];
     struct threadInfo *threadInfos[NUM_THREADS];
@@ -153,7 +153,6 @@ void networkEventLoop(int32_t udpSockFd){
             exit(EXIT_FAILURE);
         } else {
             numbytes = recvmsg(udpSockFd, &msg, 0); 
-            fprintf(stdout, "Received %zd bytes\n", numbytes);
             hdr = (struct pktHdr *) buf;
 
             if(senderAddr.ss_family == AF_INET){
@@ -167,10 +166,46 @@ void networkEventLoop(int32_t udpSockFd){
             }
 
             if(hdr->type == NEW_SESSION){
-                fprintf(stdout, "Request for new session from %s:%u\n", addrPresentation, recvPort);
-                //pkt = (struct dataPkt *) buf;
-                //pkt->type = DATA;
-                //sendmsg(udpSockFd, &msg, 0);
+                newSPkt = (struct newSessionPkt *) buf; 
+
+                //Check that I have not already started the thread belonging to
+                //this session
+                for(i = 0; i<NUM_THREADS; i++){
+                    if(threadInfos[i]->status == RUNNING && \
+                            threadInfos[i]->source.ss_family == senderAddr.ss_family){
+                        if(senderAddr.ss_family == AF_INET && \
+                                !memcmp(&senderAddr, &threadInfos[i]->source, \
+                                sizeof(struct sockaddr_in))){
+                            break;
+                        } else if(senderAddr.ss_family == AF_INET6 && \
+                                !memcmp(&senderAddr, &threadInfos[i]->source, \
+                                sizeof(struct sockaddr_in6))){
+                            break;
+                        }
+                    }
+                }
+
+                if(i!=NUM_THREADS){
+                    fprintf(stdout, "This session has already been seen (%s:%d)\n", addrPresentation, recvPort);
+                    continue;
+                }
+
+                for(i=0; i<NUM_THREADS; i++){
+                    if(threadInfos[i]->status == PAUSED){
+                        memcpy(&threadInfos[i]->source, &senderAddr, sizeof(struct sockaddr_storage));
+                        threadInfos[i]->duration = newSPkt->duration;
+                        threadInfos[i]->bandwidth = newSPkt->bw;
+                        threadInfos[i]->payloadLen = newSPkt->payload_len;
+                        threadInfos[i]->status = RUNNING;
+                        fprintf(stdout, "Created a new session for %s:%d\n", addrPresentation, recvPort);
+                        break;
+                    }
+                }
+
+                if(i==NUM_THREADS){
+                    fprintf(stdout, "No available threads\n");
+                }
+
             } else {
                 fprintf(stdout, "Unknown packet type\n");
             }
