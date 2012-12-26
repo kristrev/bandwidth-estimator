@@ -4,10 +4,12 @@
 #include <stdlib.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/times.h>
 #include <netdb.h>
 #include <string.h>
 #include <arpa/inet.h>
 
+#include "bw_estimation_recv.h"
 #include "bw_estimation_packets.h"
 
 //Idea is that:
@@ -42,11 +44,25 @@ socklen_t fillSenderAddr(struct sockaddr_storage *senderAddr, char *senderIp, ch
 
 void networkLoop(int32_t udpSockFd, int16_t bandwidth, int16_t duration, \
         int16_t payloadLen, struct sockaddr_storage *senderAddr, socklen_t senderAddrLen){
+
+    fd_set recvSet;
+    fd_set recvSetCopy;
+    int32_t fdmax = udpSockFd + 1;
+    int32_t retval = 0;
+    struct timeval tv;
+
     struct msghdr msg;
     struct iovec iov;
+    bwrecv_state state = STARTING; 
 
-    uint8_t buf[1400] = {1};
+    uint8_t buf[1400] = {0};
     ssize_t numbytes = 0;
+    uint8_t consecutiveRetrans = 0;
+
+    //Configure the variables used for the select
+    FD_ZERO(&recvSet);
+    FD_ZERO(&recvSetCopy);
+    FD_SET(udpSockFd, &recvSet);
 
     memset(&msg, 0, sizeof(struct msghdr));
     memset(&iov, 0, sizeof(struct iovec));
@@ -58,17 +74,57 @@ void networkLoop(int32_t udpSockFd, int16_t bandwidth, int16_t duration, \
     msg.msg_namelen = senderAddrLen;
     msg.msg_iov = &iov;
     msg.msg_iovlen = 1;
-   
-    //Define three states, STARTING, RECEIVING, ENDING
-    //- STARTING: Send NEW_SESSION every TIMEOUT second, up to N times. Abort if
-    //no reply is received X seconds after last message
-    //- RECEIVING: SESSION started, receiving data. Wait DURATION seconds for
-    //data, move to ENDING after DURATION has passed. Abort if no packets have
-    //been received. Reset DURATION upon first packet
-    //- ENDING: Wait ENDING_TIMEOUT seconds before aborting.
+ 
+    //Send first NEW_SESSION-packet
+    struct newSessionPkt *sessionPkt = (struct newSessionPkt *) buf; 
+    sessionPkt->type = NEW_SESSION; 
+    sessionPkt->duration = duration;
+    sessionPkt->bw = bandwidth;
+    sessionPkt->payload_len = payloadLen;
 
     numbytes = sendmsg(udpSockFd, &msg, 0);
-    fprintf(stderr, "Sent %zd bytes\n", numbytes);
+    if(numbytes <= 0){
+        fprintf(stdout, "Failed to send initial NEW_SESSION message\n");
+        exit(EXIT_FAILURE);
+    } else {
+        fprintf(stdout, "Sendt first NEW_SESSION message\n");
+    }
+
+    while(1){
+        recvSetCopy = recvSet;
+        if(state == STARTING){
+            tv.tv_sec = NEW_SESSION_TIMEOUT;
+            tv.tv_usec = 0;
+        } else {
+            //The timeout is reset for each data packet I receive
+            tv.tv_sec = duration;
+            tv.tv_usec = 0;
+        }
+
+        retval = select(fdmax, &recvSetCopy, NULL, NULL, &tv);
+
+        if(retval == 0){
+            //Reason for using EXIT_FAILURE here is that these are not clean
+            //resets, something went wrong
+            if(state == RECEIVING){
+                fprintf(stdout, "%d seconds passed without any traffic, aborting\n", duration); 
+                exit(EXIT_FAILURE);
+            } else if(consecutiveRetrans == RETRANSMISSION_THRESHOLD){
+                fprintf(stdout, "Did not receive any reply to NEW_SESSION, aborting\n");
+                exit(EXIT_FAILURE);
+            } else {
+                //Send retransmission
+                fprintf(stdout, "Retransmitting NEW_SESSION. Consecutive retransmissions %d\n", ++consecutiveRetrans);
+                sendmsg(udpSockFd, &msg, 0);
+            }
+        } else {
+            //Recv packet
+        }
+
+    }
+
+    numbytes = sendmsg(udpSockFd, &msg, 0);
+    fprintf(stdout, "Sent %zd bytes\n", numbytes);
 }
 
 //Bind the local socket. Should work with both IPv4 and IPv6
@@ -83,7 +139,7 @@ int bind_local(char *local_addr, char *local_port, int socktype){
   hints.ai_socktype = socktype;
   
   if((rv = getaddrinfo(local_addr, local_port, &hints, &info)) != 0){
-    fprintf(stderr, "Getaddrinfo (local) failed: %s\n", gai_strerror(rv));
+    fprintf(stdout, "Getaddrinfo (local) failed: %s\n", gai_strerror(rv));
     return -1;
   }
   
@@ -109,7 +165,7 @@ int bind_local(char *local_addr, char *local_port, int socktype){
   }
 
   if(p == NULL){
-    fprintf(stderr, "Local bind failed\n");
+    fprintf(stdout, "Local bind failed\n");
     freeaddrinfo(info);  
     return -1;
   }
@@ -120,13 +176,13 @@ int bind_local(char *local_addr, char *local_port, int socktype){
 }
 
 void usage(){
-    fprintf(stderr, "Supported command line arguments\n");
-    fprintf(stderr, "-b : Bandwidth (in Mbit/s, only integers)\n");
-    fprintf(stderr, "-t : Duration of test (in seconds)\n");
-    fprintf(stderr, "-l : Payload length (in bytes)\n");
-    fprintf(stderr, "-s : Source IP to bind to\n");
-    fprintf(stderr, "-d : Destion IP\n");
-    fprintf(stderr, "-p : Destion port\n");
+    fprintf(stdout, "Supported command line arguments\n");
+    fprintf(stdout, "-b : Bandwidth (in Mbit/s, only integers)\n");
+    fprintf(stdout, "-t : Duration of test (in seconds)\n");
+    fprintf(stdout, "-l : Payload length (in bytes)\n");
+    fprintf(stdout, "-s : Source IP to bind to\n");
+    fprintf(stdout, "-d : Destion IP\n");
+    fprintf(stdout, "-p : Destion port\n");
 }
 
 int main(int argc, char *argv[]){
