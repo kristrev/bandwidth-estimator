@@ -121,7 +121,8 @@ void *sendLoop(void *data){
 
         pkts_per_sec = (threadInfo->bandwidth * 1000 * 1000) / (double) (threadInfo->payloadLen * 8);
         desired_iat = 1000000 / pkts_per_sec; //IAT is microseconds, sufficient resolution
-        fprintf(stdout, "Bandiwdth of %d Mbit/s, duration %ds\n", threadInfo->bandwidth, threadInfo->duration);
+        fprintf(stdout, "Bandiwdth of %d Mbit/s, duration %ds, payload length %d\n", 
+                threadInfo->bandwidth, threadInfo->duration, threadInfo->payloadLen);
         fprintf(stdout, "Sending %f packets/s, IAT %f microseconds\n", pkts_per_sec, desired_iat);
     
         t0 = time(NULL);
