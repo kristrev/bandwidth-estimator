@@ -11,6 +11,10 @@ typedef enum{
 #define BW_MANDATORY \
     uint8_t type;
 
+struct pktHdr{
+    uint8_t type;  
+};
+
 //Will I need a timestamp? All NEW_SESSION packets have same src/port, so I can just check
 //for that
 struct newSessionPkt{

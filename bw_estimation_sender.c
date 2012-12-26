@@ -70,6 +70,7 @@ void networkEventLoop(int32_t udpSockFd){
     int32_t fdmax = udpSockFd + 1;
     int32_t retval = 0;
     ssize_t numbytes = 0;
+    struct pktHdr *hdr;
 
     struct msghdr msg;
     struct iovec iov;
@@ -101,6 +102,13 @@ void networkEventLoop(int32_t udpSockFd){
         } else {
             numbytes = recvmsg(udpSockFd, &msg, 0); 
             fprintf(stdout, "Received %zd bytes\n", numbytes);
+            hdr = (struct pktHdr *) buf;
+
+            if(hdr->type == NEW_SESSION){
+                fprintf(stdout, "Request for new session\n");
+            } else {
+                fprintf(stdout, "Unknown packet type\n");
+            }
         }
     }
 }
