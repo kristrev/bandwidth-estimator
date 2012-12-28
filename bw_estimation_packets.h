@@ -7,6 +7,7 @@ typedef enum{
     NEW_SESSION=0, //The sender should start a new send session
     DATA, //Pkt shall be used for measurement
     END_SESSION, //Sent from sender after last data packet
+    SENDER_FULL
 } pktType;
 
 #define BW_MANDATORY \

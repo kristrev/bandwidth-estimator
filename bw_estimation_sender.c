@@ -260,6 +260,7 @@ void networkEventLoop(int32_t udpSockFd, int32_t tcpSockFd){
     iov.iov_len = sizeof(buf);
 
     msg.msg_name = (void *) &senderAddr;
+
     //Unlike for example recvfrom, this one seems to be left unchanged
     msg.msg_namelen = sizeof(struct sockaddr_storage);
     msg.msg_iov = &iov;
@@ -360,6 +361,17 @@ void networkEventLoop(int32_t udpSockFd, int32_t tcpSockFd){
 
             if(i==NUM_THREADS){
                 fprintf(stdout, "No available threads\n");
+
+                //Create SENDER_FULL packet, which only consis of 1 byte payload
+                buf[0] = SENDER_FULL;
+                iov.iov_len = 1;
+
+                if(recvSocket > 0){
+                    close(recvSocket);
+                } else
+                    sendmsg(udpSockFd, &msg, 0);
+
+                iov.iov_len = sizeof(buf);
                 //Send message that sender is full
             }
         }

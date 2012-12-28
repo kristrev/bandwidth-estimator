@@ -83,23 +83,33 @@ void networkLoopTcp(int32_t tcpSockFd, int16_t duration, FILE *outputFile){
         iov.iov_len = sizeof(buf);
         numbytes = recvmsg(tcpSockFd, &msg, 0);
 
-        //This will be less accurate than UDP
+        //Server had to close connection
+        if(numbytes <= 0)
+            break;
+
+        //This will be less accurate than UDP, using application layer
+        //timestamps
         if(totalNumberBytes == 0)
             gettimeofday(&t0, NULL);
 
         gettimeofday(&t1, NULL);
-        //if(outputFile)
-            //fprintf(stderr, "%lu.%lu %zd\n", t1.tv_sec, t1.tv_usec, numbytes);
+        if(outputFile)
+            fprintf(outputFile, "%lu.%lu %zd\n", t1.tv_sec, t1.tv_usec, numbytes);
         totalNumberBytes += numbytes;
 
         if((t1.tv_sec - t0.tv_sec) > duration)
             break;
     }
 
-    dataInterval = (t1.tv_sec - t0.tv_sec) + ((t1.tv_usec - t0.tv_usec)/1000000.0);
-    estimatedBandwidth = ((totalNumberBytes / 1000000.0) * 8) / dataInterval;
-    //Computations?
-    fprintf(stdout, "Received %zd bytes in %.2f seconds. Estimated bandwidth %.2f Mbit/s\n", totalNumberBytes, dataInterval, estimatedBandwidth);
+    if(totalNumberBytes > 0){
+        dataInterval = (t1.tv_sec - t0.tv_sec) + ((t1.tv_usec - t0.tv_usec)/1000000.0);
+        estimatedBandwidth = ((totalNumberBytes / 1000000.0) * 8) / dataInterval;
+        //Computations?
+        fprintf(stdout, "Received %zd bytes in %.2f seconds. Estimated bandwidth %.2f Mbit/s\n", totalNumberBytes, dataInterval, estimatedBandwidth);
+    } else {
+        fprintf(stdout, "Received no data from server. All threads busy?\n");
+    }
+        
     close(tcpSockFd);
 }
 
@@ -210,6 +220,9 @@ void networkLoopUdp(int32_t udpSockFd, int16_t bandwidth, int16_t duration, \
             } else if(hdr->type == END_SESSION){
                 fprintf(stdout, "End session\n");
                 break;
+            } else if(hdr->type == SENDER_FULL){
+                fprintf(stdout, "Sender is full, cant serve more clients\n");
+                break;
             } else {
                 fprintf(stdout, "Unkown\n");
             }
@@ -217,10 +230,13 @@ void networkLoopUdp(int32_t udpSockFd, int16_t bandwidth, int16_t duration, \
 
     }
 
-    dataInterval = (t1.tv_sec - t0.tv_sec) + ((t1.tv_nsec - t0.tv_nsec)/1000000000.0);
-    estimatedBandwidth = ((totalNumberBytes / 1000000.0) * 8) / dataInterval;
-    //Computations?
-    fprintf(stdout, "Received %zd bytes in %.2f seconds. Estimated bandwidth %.2f Mbit/s\n", totalNumberBytes, dataInterval, estimatedBandwidth);
+    if(totalNumberBytes > 0){
+        dataInterval = (t1.tv_sec - t0.tv_sec) + ((t1.tv_nsec - t0.tv_nsec)/1000000000.0);
+        estimatedBandwidth = ((totalNumberBytes / 1000000.0) * 8) / dataInterval;
+        //Computations?
+        fprintf(stdout, "Received %zd bytes in %.2f seconds. Estimated bandwidth %.2f Mbit/s\n", totalNumberBytes, dataInterval, estimatedBandwidth);
+    }
+
     close(udpSockFd);
 }
 
