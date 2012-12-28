@@ -53,6 +53,7 @@ void networkLoop(int32_t udpSockFd, int16_t bandwidth, int16_t duration, \
     size_t totalNumberBytes = 0;
     struct timespec t0, t1;
     double dataInterval;
+    double estimatedBandwidth;
 
     struct msghdr msg;
     struct iovec iov;
@@ -151,15 +152,17 @@ void networkLoop(int32_t udpSockFd, int16_t bandwidth, int16_t duration, \
                 fprintf(stdout, "End session\n");
                 break;
             } else {
-                fprtinf(stdout, "Unkown\n");
+                fprintf(stdout, "Unkown\n");
             }
         }
 
     }
 
     dataInterval = (t1.tv_sec - t0.tv_sec) + ((t1.tv_nsec - t0.tv_nsec)/1000000000.0);
+    estimatedBandwidth = ((totalNumberBytes / 1000000.0) * 8) / dataInterval;
     //Computations?
-    fprintf(stdout, "Received %zd bytes in %.2f seconds\n", totalNumberBytes, dataInterval);
+    fprintf(stdout, "Received %zd bytes in %.2f seconds. Estimated bandwidth %.2f Mbit/s\n", totalNumberBytes, dataInterval, estimatedBandwidth);
+    close(udpSockFd);
 }
 
 //Bind the local socket. Should work with both IPv4 and IPv6

@@ -144,6 +144,7 @@ void *sendLoop(void *data){
             if(adjust > 0 || iat > 0)
               iat += adjust;
 
+            buf[0] = DATA;
             sendmsg(threadInfo->udpSockFd, &msg, 0);
             //Check if it is time to abort
             t1 = time(NULL);
