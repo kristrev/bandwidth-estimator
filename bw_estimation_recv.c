@@ -43,7 +43,7 @@ socklen_t fillSenderAddr(struct sockaddr_storage *senderAddr, char *senderIp, ch
 }
 
 void networkLoop(int32_t udpSockFd, int16_t bandwidth, int16_t duration, \
-        int16_t payloadLen, struct sockaddr_storage *senderAddr, socklen_t senderAddrLen){
+        int16_t payloadLen, struct sockaddr_storage *senderAddr, socklen_t senderAddrLen, FILE *outputFile){
 
     fd_set recvSet;
     fd_set recvSetCopy;
@@ -138,7 +138,8 @@ void networkLoop(int32_t udpSockFd, int16_t bandwidth, int16_t duration, \
                 cmsg = CMSG_FIRSTHDR(&msg);
                 if(cmsg->cmsg_level == SOL_SOCKET && cmsg->cmsg_type == SO_TIMESTAMPNS){
                     recvTime = (struct timespec *) CMSG_DATA(cmsg);
-                    //fprintf(stderr, "%lu.%lu %zd\n", recvTime->tv_sec, recvTime->tv_nsec, numbytes);
+                    if(outputFile != NULL)
+                        fprintf(outputFile, "%lu.%lu %zd\n", recvTime->tv_sec, recvTime->tv_nsec, numbytes);
                 }
 
                 if(state == STARTING){
@@ -227,23 +228,20 @@ void usage(){
     fprintf(stdout, "-s : Source IP to bind to\n");
     fprintf(stdout, "-d : Destion IP\n");
     fprintf(stdout, "-p : Destion port\n");
+    fprintf(stdout, "-w : Provide an optional filename for writing the "\
+            "packet receive times\n");
 }
 
 int main(int argc, char *argv[]){
     uint16_t bandwidth = 0, duration = 0, payloadLen = 0;
-    char *srcIp = NULL, *senderIp = NULL, *senderPort = NULL;
+    char *srcIp = NULL, *senderIp = NULL, *senderPort = NULL, *fileName = NULL;
     int32_t c, udpSockFd = -1;
     struct sockaddr_storage senderAddr;
     socklen_t senderAddrLen = 0;
     char addrPresentation[INET6_ADDRSTRLEN];
+    FILE *outputFile = NULL;
 
-    //Mandatory arguments + values
-    if(argc != 13){
-        usage();
-        exit(EXIT_FAILURE);
-    }
-
-    while((c = getopt(argc, argv, "b:t:l:s:d:p:")) != -1){
+    while((c = getopt(argc, argv, "b:t:l:s:d:p:w:")) != -1){
         switch(c){
             case 'b':
                 bandwidth = atoi(optarg);
@@ -263,6 +261,9 @@ int main(int argc, char *argv[]){
             case 'p':
                 senderPort = optarg;
                 break;
+            case 'w':
+                fileName = optarg;
+                break;
             default:
                 usage();
                 exit(EXIT_FAILURE);
@@ -277,6 +278,11 @@ int main(int argc, char *argv[]){
 
     if(payloadLen > MAX_PAYLOAD_LEN){
         fprintf(stdout, "Payload length exceeds limit (%d)\n", MAX_PAYLOAD_LEN);
+        exit(EXIT_FAILURE);
+    }
+
+    if(fileName != NULL && ((outputFile = fopen(fileName, "w")) == NULL)){
+        fprintf(stdout, "Failed to open output file\n");
         exit(EXIT_FAILURE);
     }
 
@@ -309,7 +315,7 @@ int main(int argc, char *argv[]){
         fprintf(stdout, "Sender (IPv6) %s:%s\n", addrPresentation, senderPort);
     }
 
-    networkLoop(udpSockFd, bandwidth, duration, payloadLen, &senderAddr, senderAddrLen);
+    networkLoop(udpSockFd, bandwidth, duration, payloadLen, &senderAddr, senderAddrLen, outputFile);
 
     return 0;
 }
