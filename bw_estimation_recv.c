@@ -42,7 +42,11 @@ socklen_t fillSenderAddr(struct sockaddr_storage *senderAddr, char *senderIp, ch
     return addrLen;
 }
 
-void networkLoop(int32_t udpSockFd, int16_t bandwidth, int16_t duration, \
+void networkLoopTcp(int32_t socketFd, int16_t duration, FILE *outputFile){
+
+}
+
+void networkLoopUdp(int32_t udpSockFd, int16_t bandwidth, int16_t duration, \
         int16_t payloadLen, struct sockaddr_storage *senderAddr, socklen_t senderAddrLen, FILE *outputFile){
 
     fd_set recvSet;
@@ -76,9 +80,6 @@ void networkLoop(int32_t udpSockFd, int16_t bandwidth, int16_t duration, \
     memset(&iov, 0, sizeof(struct iovec));
 
     iov.iov_base = buf;
-
-    //TODO: Fix so that I now longer waste space, right now I always send
-    //len(buf) bytes
     iov.iov_len = sizeof(struct newSessionPkt);
 
     msg.msg_name = (void *) senderAddr;
@@ -222,27 +223,30 @@ int bind_local(char *local_addr, char *local_port, int socktype){
 
 void usage(){
     fprintf(stdout, "Supported command line arguments\n");
-    fprintf(stdout, "-b : Bandwidth (in Mbit/s, only integers)\n");
+    fprintf(stdout, "-b : Bandwidth (in Mbit/s, only integers and only needed with UDP)\n");
     fprintf(stdout, "-t : Duration of test (in seconds)\n");
-    fprintf(stdout, "-l : Payload length (in bytes)\n");
+    fprintf(stdout, "-l : Payload length (in bytes), only needed with UDP\n");
     fprintf(stdout, "-s : Source IP to bind to\n");
     fprintf(stdout, "-d : Destion IP\n");
     fprintf(stdout, "-p : Destion port\n");
+    fprintf(stdout, "-r : Use TCP (reliable) instead of UDP\n");
     fprintf(stdout, "-w : Provide an optional filename for writing the "\
             "packet receive times\n");
+
 }
 
 int main(int argc, char *argv[]){
+    uint8_t useTcp = 0;
     uint16_t bandwidth = 0, duration = 0, payloadLen = 0;
     char *srcIp = NULL, *senderIp = NULL, *senderPort = NULL, *fileName = NULL;
-    int32_t c, udpSockFd = -1;
+    int32_t retval, socketFd = -1, socktype = SOCK_DGRAM;
     struct sockaddr_storage senderAddr;
     socklen_t senderAddrLen = 0;
     char addrPresentation[INET6_ADDRSTRLEN];
     FILE *outputFile = NULL;
 
-    while((c = getopt(argc, argv, "b:t:l:s:d:p:w:")) != -1){
-        switch(c){
+    while((retval = getopt(argc, argv, "b:t:l:s:d:p:w:r")) != -1){
+        switch(retval){
             case 'b':
                 bandwidth = atoi(optarg);
                 break;
@@ -264,14 +268,21 @@ int main(int argc, char *argv[]){
             case 'w':
                 fileName = optarg;
                 break;
+            case 'r':
+                useTcp = 1;
+                break;
             default:
                 usage();
                 exit(EXIT_FAILURE);
         }
     }
 
-    if(bandwidth == 0 || duration == 0 || payloadLen == 0 || srcIp == NULL || \
-            senderIp == NULL || senderPort == NULL){
+    if(duration == 0 || srcIp == NULL || senderIp == NULL || senderPort == NULL){
+        usage();
+        exit(EXIT_FAILURE);
+    }
+
+    if(!useTcp && (bandwidth == 0 || payloadLen == 0)){
         usage();
         exit(EXIT_FAILURE);
     }
@@ -290,13 +301,16 @@ int main(int argc, char *argv[]){
     fprintf(stdout, "Bandwidth %d Mbit/s, Duration %d sec, Payload length %d bytes, Source IP %s\n", \
             bandwidth, duration, payloadLen, srcIp);
 
-    //Bind UDP socket
-    if((udpSockFd = bind_local(srcIp, NULL, SOCK_DGRAM)) == -1){
+    if(useTcp)
+        socktype = SOCK_STREAM;
+
+    //Bind network socket
+    if((socketFd = bind_local(srcIp, NULL, socktype)) == -1){
         fprintf(stdout, "Binding to local IP failed\n");
         exit(EXIT_FAILURE);
     }
 
-    fprintf(stdout, "UDP socket %d\n", udpSockFd);
+    fprintf(stdout, "Network socket %d\n", socketFd);
 
     memset(&senderAddr, 0, sizeof(struct sockaddr_storage));
     
@@ -305,6 +319,8 @@ int main(int argc, char *argv[]){
         exit(EXIT_FAILURE);
     }
 
+    //I could just have outputted the command line paramteres, but this serves
+    //asa nice example on how use inet_ntop + sockaddr_storage
     if(senderAddr.ss_family == AF_INET){
         inet_ntop(AF_INET, &(((struct sockaddr_in *) &senderAddr)->sin_addr),\
                 addrPresentation, INET6_ADDRSTRLEN);
@@ -315,7 +331,22 @@ int main(int argc, char *argv[]){
         fprintf(stdout, "Sender (IPv6) %s:%s\n", addrPresentation, senderPort);
     }
 
-    networkLoop(udpSockFd, bandwidth, duration, payloadLen, &senderAddr, senderAddrLen, outputFile);
+    if(useTcp){
+        //I could use connect with UDP too, but I have some bad experiences with
+        //side-effects of doing that.
+        if(senderAddr.ss_family == AF_INET)
+            retval = connect(socketFd, (struct sockaddr *) &senderAddr, sizeof(struct sockaddr_in));
+        else
+            retval = connect(socketFd, (struct sockaddr *) &senderAddr, sizeof(struct sockaddr_in6));
+
+        if(retval < 0){
+            fprintf(stdout, "Could not connect to sender, aborting\n");
+            exit(EXIT_FAILURE);
+        }
+
+        networkLoopTcp(socketFd, duration, outputFile);
+    }else
+        networkLoopUdp(socketFd, bandwidth, duration, payloadLen, &senderAddr, senderAddrLen, outputFile);
 
     return 0;
 }

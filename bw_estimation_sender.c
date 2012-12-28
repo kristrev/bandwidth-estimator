@@ -33,7 +33,7 @@ struct threadInfo{
 };
 
 //Bind the local socket. Should work with both IPv4 and IPv6
-int bind_local(char *local_addr, char *local_port, int socktype){
+int bind_local(char *local_addr, char *local_port, int socktype, uint8_t listenSocket){
   struct addrinfo hints, *info, *p;
   int sockfd;
   int rv;
@@ -65,10 +65,17 @@ int bind_local(char *local_addr, char *local_port, int socktype){
       perror("Setsockopt (timestamp)");
       continue;
     }
+
     if(bind(sockfd, p->ai_addr, p->ai_addrlen) == -1){
       close(sockfd);
       perror("Bind (local)");
       continue;
+    }
+
+    if(listenSocket && listen(sockfd, NUM_THREADS) == -1){
+        close(sockfd);
+        perror("Connect");
+        continue;
     }
 
     break;
@@ -175,7 +182,7 @@ void *sendLoop(void *data){
     }
 }
 
-void networkEventLoop(int32_t udpSockFd){
+void networkEventLoop(int32_t udpSockFd, int32_t tcpSockFd){
     fd_set recvSet, recvSetCopy;
     int32_t fdmax = udpSockFd + 1;
     int32_t retval = 0, i;
@@ -194,7 +201,7 @@ void networkEventLoop(int32_t udpSockFd){
     uint16_t recvPort = 0;
     struct dataPkt *pkt = NULL;
 
-    //Initialize and start threads whatever has to do with the threads
+    //Initialize and start threads used to generate traffic
     for(i = 0; i<NUM_THREADS; i++){
         threadInfos[i] = (struct threadInfo*) malloc(sizeof(struct threadInfo));
         threadInfos[i]->status = PAUSED;
@@ -233,6 +240,8 @@ void networkEventLoop(int32_t udpSockFd){
             numbytes = recvmsg(udpSockFd, &msg, 0); 
             hdr = (struct pktHdr *) buf;
 
+            //The combination adress + port is used for lookup in the currently
+            //running threads
             if(senderAddr.ss_family == AF_INET){
                 inet_ntop(AF_INET, &(((struct sockaddr_in *) &senderAddr)->sin_addr),\
                         addrPresentation, INET6_ADDRSTRLEN);
@@ -273,6 +282,7 @@ void networkEventLoop(int32_t udpSockFd){
                 }
 
                 for(i=0; i<NUM_THREADS; i++){
+                    //Found an availale thread. Initialise and start
                     if(threadInfos[i]->status == PAUSED){
                         memcpy(&threadInfos[i]->source, &senderAddr, sizeof(struct sockaddr_storage));
                         threadInfos[i]->duration = newSPkt->duration;
@@ -289,6 +299,7 @@ void networkEventLoop(int32_t udpSockFd){
 
                 if(i==NUM_THREADS){
                     fprintf(stdout, "No available threads\n");
+                    //Send message that sender is full
                 }
 
             } else {
@@ -336,19 +347,17 @@ int main(int argc, char *argv[]){
         fprintf(stdout, "Source IP: %s:%s\n", srcIp, srcPort);
     }
 
-    if((udpSockFd = bind_local(srcIp, srcPort, SOCK_DGRAM)) == -1){
+    if((udpSockFd = bind_local(srcIp, srcPort, SOCK_DGRAM, 0)) == -1){
         fprintf(stdout, "Could not create UDP socket\n");
         exit(EXIT_FAILURE);
     }
 
-#if 0
     //I can have one UDP and one TCP socket bound to same port
-    if((tcpSockFd = bind_local(srcIp, srcPort, SOCK_STREAM)) == -1){
+    if((tcpSockFd = bind_local(srcIp, srcPort, SOCK_STREAM, 1)) == -1){
         fprintf(stdout, "Could not create TCP socket\n");
         exit(EXIT_FAILURE);
     }
-#endif
 
-    networkEventLoop(udpSockFd);
+    networkEventLoop(udpSockFd, tcpSockFd);
     return 0;
 }
