@@ -93,6 +93,29 @@ int bind_local(char *local_addr, char *local_port, int socktype, uint8_t listenS
   return sockfd;
 }
 
+uint64_t generateTcpTraffic(struct threadInfo *threadInfo){
+    struct msghdr msg;
+    struct iovec iov;
+    uint8_t buf[MAX_PAYLOAD_LEN] = {DATA};
+    int32_t numbytes = 0;
+    uint64_t tot_bytes = 0;
+
+    memset(&msg, 0, sizeof(struct msghdr));
+    memset(&iov, 0, sizeof(struct iovec));
+
+    msg.msg_iov = &iov;
+    msg.msg_iovlen = 1;
+    iov.iov_base = buf;
+    iov.iov_len = MAX_PAYLOAD_LEN;
+
+    //With TCP, it is is sufficient to send data until the socket returns an
+    //error (closed by peer)
+    while((numbytes = sendmsg(threadInfo->tcpSockFd, &msg, 0)) > 0)
+            tot_bytes += numbytes;
+
+    return tot_bytes;
+}
+
 uint64_t generateUdpTraffic(struct threadInfo *threadInfo){
     //Variables used to compute and keep the desired bandwidth
     struct timeval t0_p, t1_p;
@@ -169,7 +192,7 @@ uint64_t generateUdpTraffic(struct threadInfo *threadInfo){
 }
 
 void *sendLoop(void *data){
-    uint64_t tot_bytes;
+    uint64_t tot_bytes = 0;
     struct threadInfo *threadInfo = (struct threadInfo *) data;
     fprintf(stdout, "Started thread\n");
 
@@ -183,7 +206,9 @@ void *sendLoop(void *data){
         assert(threadInfo->status == RUNNING);
 
         if(threadInfo->tcpSockFd > 0){
-        
+            tot_bytes = generateTcpTraffic(threadInfo);
+            close(threadInfo->tcpSockFd);
+            threadInfo->tcpSockFd = 0; 
         } else {
             tot_bytes = generateUdpTraffic(threadInfo); 
         }
@@ -282,7 +307,6 @@ void networkEventLoop(int32_t udpSockFd, int32_t tcpSockFd){
                         addrPresentation, INET6_ADDRSTRLEN);
                 recvPort = ntohs(((struct sockaddr_in6 *) &senderAddr)->sin6_port);
             }
-
 
             //Check that I have not already started the thread belonging to
             //this session

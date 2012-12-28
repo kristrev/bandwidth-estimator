@@ -42,8 +42,65 @@ socklen_t fillSenderAddr(struct sockaddr_storage *senderAddr, char *senderIp, ch
     return addrLen;
 }
 
-void networkLoopTcp(int32_t socketFd, int16_t duration, FILE *outputFile){
+//These two functions could be merged, but I think the code is cleaner if they
+//are separated
+void networkLoopTcp(int32_t tcpSockFd, int16_t duration, FILE *outputFile){
+    //Related to select
+    fd_set recvSet;
+    fd_set recvSetCopy;
+    int32_t fdmax = tcpSockFd + 1;
+    int32_t retval;
+    size_t totalNumberBytes = 0;
 
+    //Estimation
+    struct timeval t0, t1;
+    double dataInterval;
+    double estimatedBandwidth;
+    
+    //Receiving packet + control data
+    struct msghdr msg;
+    struct iovec iov;
+    uint8_t buf[MAX_PAYLOAD_LEN] = {0};
+    ssize_t numbytes;
+
+    FD_ZERO(&recvSet);
+    FD_ZERO(&recvSetCopy);
+    FD_SET(tcpSockFd, &recvSet);
+    memset(&msg, 0, sizeof(struct msghdr));
+    memset(&iov, 0, sizeof(struct iovec));
+
+    iov.iov_base = buf;
+    iov.iov_len = MAX_PAYLOAD_LEN;
+    //Timestamping does not work with TCP due to collapsing of packets
+    msg.msg_iov = &iov;
+    msg.msg_iovlen = 1;
+
+    while(1){
+        recvSetCopy = recvSet;
+        retval = select(fdmax, &recvSetCopy, NULL, NULL, NULL); 
+
+        //fprintf(stderr, "%d\n", tv.tv_sec);
+        iov.iov_len = sizeof(buf);
+        numbytes = recvmsg(tcpSockFd, &msg, 0);
+
+        //This will be less accurate than UDP
+        if(totalNumberBytes == 0)
+            gettimeofday(&t0, NULL);
+
+        gettimeofday(&t1, NULL);
+        //if(outputFile)
+            //fprintf(stderr, "%lu.%lu %zd\n", t1.tv_sec, t1.tv_usec, numbytes);
+        totalNumberBytes += numbytes;
+
+        if((t1.tv_sec - t0.tv_sec) > duration)
+            break;
+    }
+
+    dataInterval = (t1.tv_sec - t0.tv_sec) + ((t1.tv_usec - t0.tv_usec)/1000000.0);
+    estimatedBandwidth = ((totalNumberBytes / 1000000.0) * 8) / dataInterval;
+    //Computations?
+    fprintf(stdout, "Received %zd bytes in %.2f seconds. Estimated bandwidth %.2f Mbit/s\n", totalNumberBytes, dataInterval, estimatedBandwidth);
+    close(tcpSockFd);
 }
 
 void networkLoopUdp(int32_t udpSockFd, int16_t bandwidth, int16_t duration, \
@@ -345,7 +402,7 @@ int main(int argc, char *argv[]){
         }
 
         networkLoopTcp(socketFd, duration, outputFile);
-    }else
+    } else
         networkLoopUdp(socketFd, bandwidth, duration, payloadLen, &senderAddr, senderAddrLen, outputFile);
 
     return 0;
