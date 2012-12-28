@@ -155,8 +155,7 @@ void *sendLoop(void *data){
             //Check if it is time to abort
             t1 = time(NULL);
 
-            //I want to "include" the last second
-            if(difftime(t1,t0) > threadInfo->duration){
+            if(difftime(t1,t0) >= threadInfo->duration){
                 break;
             }
 
