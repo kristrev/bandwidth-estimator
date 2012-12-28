@@ -94,6 +94,7 @@ void *sendLoop(void *data){
     double iat = 0;
     double adjust = 0;
     int32_t i;
+    uint64_t tot_bytes = 0;
 
     struct msghdr msg;
     struct iovec iov;
@@ -129,6 +130,11 @@ void *sendLoop(void *data){
     
         t0 = time(NULL);
         gettimeofday(&t0_p, NULL);
+        
+        //Remember to reset values
+        buf[0] = DATA;
+        iat = 0;
+        tot_bytes = 0;
 
         while(1){
             gettimeofday(&t1_p, NULL);  
@@ -144,10 +150,12 @@ void *sendLoop(void *data){
             if(adjust > 0 || iat > 0)
               iat += adjust;
 
-            buf[0] = DATA;
-            sendmsg(threadInfo->udpSockFd, &msg, 0);
+            tot_bytes += sendmsg(threadInfo->udpSockFd, &msg, 0);
+
             //Check if it is time to abort
             t1 = time(NULL);
+
+            //I want to "include" the last second
             if(difftime(t1,t0) > threadInfo->duration){
                 break;
             }
@@ -161,7 +169,7 @@ void *sendLoop(void *data){
         for(i = 0; i<NUM_END_SESSION_PKTS; i++)
             sendmsg(threadInfo->udpSockFd, &msg, 0);
         
-        fprintf(stdout, "Done with sending\n");
+        fprintf(stdout, "Done with sending. Sent %lu bytes\n", tot_bytes);
         //Send end session
         threadInfo->status = PAUSED;
     }

@@ -138,7 +138,7 @@ void networkLoop(int32_t udpSockFd, int16_t bandwidth, int16_t duration, \
                 cmsg = CMSG_FIRSTHDR(&msg);
                 if(cmsg->cmsg_level == SOL_SOCKET && cmsg->cmsg_type == SO_TIMESTAMPNS){
                     recvTime = (struct timespec *) CMSG_DATA(cmsg);
-                    fprintf(stderr, "%lu.%lu %zd\n", recvTime->tv_sec, recvTime->tv_nsec, numbytes);
+                    //fprintf(stderr, "%lu.%lu %zd\n", recvTime->tv_sec, recvTime->tv_nsec, numbytes);
                 }
 
                 if(state == STARTING){
