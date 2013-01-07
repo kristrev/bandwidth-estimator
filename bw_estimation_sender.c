@@ -18,82 +18,86 @@
 typedef enum{
     PAUSED,
     RUNNING
-} threadStatus;
+} thread_status;
 
 //Make multithreaded. Need a hashmap here
-struct threadInfo{
-    threadStatus status;
-    int32_t udpSockFd;
-    int32_t tcpSockFd;
+struct thread_info{
+    thread_status status;
+    int32_t udp_sock_fd;
+    int32_t tcp_sock_fd;
     struct sockaddr_storage source;
     uint16_t bandwidth;
     uint16_t duration;
-    uint16_t payloadLen;
-    pthread_cond_t newSession;
-    pthread_mutex_t newSessionMutex;
+    uint16_t payload_len;
+    pthread_cond_t new_session;
+    pthread_mutex_t new_session_mutex;
 };
 
 //Bind the local socket. Should work with both IPv4 and IPv6
-int bind_local(char *local_addr, char *local_port, int socktype, uint8_t listenSocket){
-  struct addrinfo hints, *info, *p;
-  int sockfd;
-  int rv;
-  int yes=1;
+int bind_local(char *local_addr, char *local_port, int socktype, uint8_t 
+        listen_socket){
+    struct addrinfo hints, *info, *p;
+    int sockfd;
+    int rv;
+    int yes=1;
   
-  memset(&hints, 0, sizeof hints);
-  hints.ai_family = AF_UNSPEC;
-  hints.ai_socktype = socktype;
+    memset(&hints, 0, sizeof hints);
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = socktype;
   
-  if((rv = getaddrinfo(local_addr, local_port, &hints, &info)) != 0){
-    fprintf(stdout, "Getaddrinfo (local) failed: %s\n", gai_strerror(rv));
-    return -1;
-  }
+    if((rv = getaddrinfo(local_addr, local_port, &hints, &info)) != 0){
+        fprintf(stdout, "Getaddrinfo (local) failed: %s\n", gai_strerror(rv));
+        return -1;
+    }
   
-  for(p = info; p != NULL; p = p->ai_next){
-    if((sockfd = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1){
-      perror("Socket:");
-      continue;
+    for(p = info; p != NULL; p = p->ai_next){
+        if((sockfd = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) 
+                == -1){
+            fprintf(stdout, "Socket:");
+            continue;
+        }
+
+        if(setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) 
+                == -1) {
+            close(sockfd);
+            fprintf(stdout, "Setsockopt (reuseaddr)");
+            continue;
+        }
+
+        if(setsockopt(sockfd, SOL_SOCKET, SO_TIMESTAMPNS, &yes, sizeof(int)) 
+                == -1){
+            close(sockfd);
+            fprintf(stdout, "Setsockopt (timestamp)");
+            continue;
+        }
+
+        if(bind(sockfd, p->ai_addr, p->ai_addrlen) == -1){
+            close(sockfd);
+            fprintf(stdout, "Bind (local)");
+            continue;
+        }
+
+        if(listen_socket && listen(sockfd, NUM_THREADS) == -1){
+            close(sockfd);
+            fprintf(stdout, "Connect");
+            continue;
+        }
+
+        break;
     }
 
-    if(setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) == -1) {
-      close(sockfd);
-      perror("Setsockopt (reuseaddr)");
-      continue;
+    if(p == NULL){
+        fprintf(stdout, "Local bind failed\n");
+        freeaddrinfo(info);  
+        return -1;
     }
 
-    if(setsockopt(sockfd, SOL_SOCKET, SO_TIMESTAMPNS, &yes, sizeof(int)) == -1) {
-      close(sockfd);
-      perror("Setsockopt (timestamp)");
-      continue;
-    }
+    freeaddrinfo(info);
 
-    if(bind(sockfd, p->ai_addr, p->ai_addrlen) == -1){
-      close(sockfd);
-      perror("Bind (local)");
-      continue;
-    }
-
-    if(listenSocket && listen(sockfd, NUM_THREADS) == -1){
-        close(sockfd);
-        perror("Connect");
-        continue;
-    }
-
-    break;
-  }
-
-  if(p == NULL){
-    fprintf(stdout, "Local bind failed\n");
-    freeaddrinfo(info);  
-    return -1;
-  }
-
-  freeaddrinfo(info);
-
-  return sockfd;
+    return sockfd;
 }
 
-uint64_t generateTcpTraffic(struct threadInfo *threadInfo){
+uint64_t generate_tcp_traffic(struct thread_info *thread_info){
     struct msghdr msg;
     struct iovec iov;
     uint8_t buf[MAX_PAYLOAD_LEN] = {DATA};
@@ -110,13 +114,13 @@ uint64_t generateTcpTraffic(struct threadInfo *threadInfo){
 
     //With TCP, it is is sufficient to send data until the socket returns an
     //error (closed by peer)
-    while((numbytes = sendmsg(threadInfo->tcpSockFd, &msg, 0)) > 0)
+    while((numbytes = sendmsg(thread_info->tcp_sock_fd, &msg, 0)) > 0)
             tot_bytes += numbytes;
 
     return tot_bytes;
 }
 
-uint64_t generateUdpTraffic(struct threadInfo *threadInfo){
+uint64_t generate_udp_traffic(struct thread_info *thread_info){
     //Variables used to compute and keep the desired bandwidth
     struct timeval t0_p, t1_p;
     time_t t0, t1;
@@ -134,18 +138,21 @@ uint64_t generateUdpTraffic(struct threadInfo *threadInfo){
 
     memset(&msg, 0, sizeof(struct msghdr));
     memset(&iov, 0, sizeof(struct iovec));
-    msg.msg_name = (void *) &(threadInfo->source);
+    msg.msg_name = (void *) &(thread_info->source);
     msg.msg_namelen = sizeof(struct sockaddr_storage);
     msg.msg_iov = &iov;
     msg.msg_iovlen = 1;
     iov.iov_base = buf;
-    iov.iov_len = threadInfo->payloadLen;
+    iov.iov_len = thread_info->payload_len;
 
-    pkts_per_sec = (threadInfo->bandwidth * 1000 * 1000) / (double) (threadInfo->payloadLen * 8);
-    desired_iat = 1000000 / pkts_per_sec; //IAT is microseconds, sufficient resolution
-    fprintf(stdout, "Bandiwdth of %d Mbit/s, duration %ds, payload length %d byte\n", 
-            threadInfo->bandwidth, threadInfo->duration, threadInfo->payloadLen);
-    fprintf(stdout, "Sending %f packets/s, IAT %f microseconds\n", pkts_per_sec, desired_iat);
+    pkts_per_sec = (thread_info->bandwidth * 1000 * 1000) / 
+        (double) (thread_info->payload_len * 8);
+    desired_iat = 1000000 / pkts_per_sec; //IAT is microseconds, ok resolution
+    fprintf(stdout, "Bandiwdth of %d Mbit/s, duration %ds, payload length %d "
+            "byte\n", thread_info->bandwidth, thread_info->duration, 
+            thread_info->payload_len);
+    fprintf(stdout, "Sending %f packets/s, IAT %f microseconds\n", 
+            pkts_per_sec, desired_iat);
 
     t0 = time(NULL);
     gettimeofday(&t0_p, NULL);
@@ -157,25 +164,29 @@ uint64_t generateUdpTraffic(struct threadInfo *threadInfo){
 
     while(1){
         gettimeofday(&t1_p, NULL);  
-        //See notebook for order, goal is that difference should be 0. I want to find how much more/less I should
-        //sleep this time to provide the desired IAT. That adjustment is desired_iat + the time it took for the last packet
-        //to be processed.
-        //If it it took longer than the desired IAT, the adjustment will be negative and "this" packet have to sleep less
-        //If it took a shorter time than desiread IAT, this packet will have to be delayed a little bit
-        adjust = desired_iat + (((t0_p.tv_sec - t1_p.tv_sec) * 1000000) + (t0_p.tv_usec - t1_p.tv_usec));
+        //See notebook for order, goal is that difference should be 0. I want 
+        //to find how much more/less I should sleep this time to provide the 
+        //desired IAT. That adjustment is desired_iat + the time it took for the
+        //last packet to be processed.
+        //- If it it took longer than the desired IAT, the adjustment will be 
+        //negative and "this" packet have to sleep less
+        //- If it took a shorter time than desiread IAT, this packet will have 
+        //to be delayed a little bit
+        adjust = desired_iat + (((t0_p.tv_sec - t1_p.tv_sec) * 1000000) + 
+                (t0_p.tv_usec - t1_p.tv_usec));
         t0_p.tv_sec = t1_p.tv_sec;
         t0_p.tv_usec = t1_p.tv_usec;
 
         if(adjust > 0 || iat > 0)
           iat += adjust;
 
-        tot_bytes += sendmsg(threadInfo->udpSockFd, &msg, 0);
+        tot_bytes += sendmsg(thread_info->udp_sock_fd, &msg, 0);
 
         //Check if it is time to abort
         t1 = time(NULL);
 
         //Must "include" previous second
-        if(difftime(t1,t0) > threadInfo->duration){
+        if(difftime(t1,t0) > thread_info->duration){
             break;
         }
 
@@ -186,110 +197,114 @@ uint64_t generateUdpTraffic(struct threadInfo *threadInfo){
     //Easy solution for sending end_session
     buf[0] = END_SESSION;
     for(i = 0; i<NUM_END_SESSION_PKTS; i++)
-        sendmsg(threadInfo->udpSockFd, &msg, 0);
+        sendmsg(thread_info->udp_sock_fd, &msg, 0);
 
     return tot_bytes;
 }
 
-void *sendLoop(void *data){
+void *send_loop(void *data){
     uint64_t tot_bytes = 0;
-    struct threadInfo *threadInfo = (struct threadInfo *) data;
+    struct thread_info *thread_info = (struct thread_info *) data;
     fprintf(stdout, "Started thread\n");
 
     while(1){
-        pthread_mutex_lock(&(threadInfo->newSessionMutex));
-        if(threadInfo->status == PAUSED)
-            pthread_cond_wait(&(threadInfo->newSession), &(threadInfo->newSessionMutex));
-        pthread_mutex_unlock(&(threadInfo->newSessionMutex));
+        pthread_mutex_lock(&(thread_info->new_session_mutex));
+        if(thread_info->status == PAUSED)
+            pthread_cond_wait(&(thread_info->new_session), 
+                    &(thread_info->new_session_mutex));
+        pthread_mutex_unlock(&(thread_info->new_session_mutex));
 
         //Sanity
-        assert(threadInfo->status == RUNNING);
+        assert(thread_info->status == RUNNING);
 
-        if(threadInfo->tcpSockFd > 0){
-            tot_bytes = generateTcpTraffic(threadInfo);
-            close(threadInfo->tcpSockFd);
-            threadInfo->tcpSockFd = 0; 
+        if(thread_info->tcp_sock_fd > 0){
+            tot_bytes = generate_tcp_traffic(thread_info);
+            close(thread_info->tcp_sock_fd);
+            thread_info->tcp_sock_fd = 0; 
         } else {
-            tot_bytes = generateUdpTraffic(threadInfo); 
+            tot_bytes = generate_udp_traffic(thread_info); 
         }
 
        
         fprintf(stdout, "Done with sending. Sent %lu bytes\n", tot_bytes);
         //Send end session
-        threadInfo->status = PAUSED;
+        thread_info->status = PAUSED;
     }
 }
 
-void networkEventLoop(int32_t udpSockFd, int32_t tcpSockFd){
-    fd_set recvSet, recvSetCopy;
-    int32_t fdmax = (udpSockFd > tcpSockFd ? udpSockFd : tcpSockFd) + 1;
+void network_event_loop(int32_t udp_sock_fd, int32_t tcp_sock_fd){
+    fd_set recv_set, recv_set_copy;
+    int32_t fdmax = (udp_sock_fd > tcp_sock_fd ? udp_sock_fd : tcp_sock_fd) + 1;
     int32_t retval = 0, i;
     ssize_t numbytes = 0;
-    int32_t recvSocket = 0;
-    struct pktHdr *hdr;
-    struct newSessionPkt *newSPkt;
+    int32_t recv_socket = 0;
+    struct pkt_hdr *hdr;
+    struct new_session_pkt *new_s_pkt;
 
     pthread_t threads[NUM_THREADS];
-    struct threadInfo *threadInfos[NUM_THREADS];
+    struct thread_info *thread_infos[NUM_THREADS];
 
     struct msghdr msg;
     struct iovec iov;
     uint8_t buf[MAX_PAYLOAD_LEN] = {0};
-    struct sockaddr_storage senderAddr;
-    socklen_t addrLen;
-    char addrPresentation[INET6_ADDRSTRLEN];
-    uint16_t recvPort = 0;
-    struct dataPkt *pkt = NULL;
+    struct sockaddr_storage sender_addr;
+    socklen_t addr_len;
+    char addr_presentation[INET6_ADDRSTRLEN];
+    uint16_t recv_port = 0;
+    struct data_pkt *pkt = NULL;
 
     //Initialize and start threads used to generate traffic
     for(i = 0; i<NUM_THREADS; i++){
-        threadInfos[i] = (struct threadInfo*) malloc(sizeof(struct threadInfo));
-        threadInfos[i]->status = PAUSED;
-        threadInfos[i]->udpSockFd = udpSockFd;
-        pthread_cond_init(&(threadInfos[i]->newSession), NULL);
-        pthread_mutex_init(&(threadInfos[i]->newSessionMutex), NULL);
+        thread_infos[i] = (struct thread_info*) 
+            malloc(sizeof(struct thread_info));
+        thread_infos[i]->status = PAUSED;
+        thread_infos[i]->udp_sock_fd = udp_sock_fd;
+        pthread_cond_init(&(thread_infos[i]->new_session), NULL);
+        pthread_mutex_init(&(thread_infos[i]->new_session_mutex), NULL);
 
-        pthread_create(&threads[i], NULL, sendLoop, (void *) threadInfos[i]);
+        pthread_create(&threads[i], NULL, send_loop, (void *) thread_infos[i]);
     }
 
     memset(&msg, 0, sizeof(struct msghdr));
     memset(&iov, 0, sizeof(struct iovec));
-    memset(&senderAddr, 0, sizeof(struct sockaddr_storage));
+    memset(&sender_addr, 0, sizeof(struct sockaddr_storage));
 
     iov.iov_base = buf;
     iov.iov_len = sizeof(buf);
 
-    msg.msg_name = (void *) &senderAddr;
+    msg.msg_name = (void *) &sender_addr;
 
     //Unlike for example recvfrom, this one seems to be left unchanged
     msg.msg_namelen = sizeof(struct sockaddr_storage);
     msg.msg_iov = &iov;
     msg.msg_iovlen = 1;
 
-    FD_ZERO(&recvSet);
-    FD_ZERO(&recvSetCopy);
-    FD_SET(udpSockFd, &recvSet);
-    FD_SET(tcpSockFd, &recvSet);
+    FD_ZERO(&recv_set);
+    FD_ZERO(&recv_set_copy);
+    FD_SET(udp_sock_fd, &recv_set);
+    FD_SET(tcp_sock_fd, &recv_set);
 
     while(1){
         //Use this an indication for wheter or not new session is using TCP
-        recvSocket = 0;
-        recvSetCopy = recvSet;
-        retval = select(fdmax, &recvSetCopy, NULL, NULL, NULL);
+        recv_socket = 0;
+        recv_set_copy = recv_set;
+        retval = select(fdmax, &recv_set_copy, NULL, NULL, NULL);
 
         if(retval < 0){
             fprintf(stdout, "Select failed, aborting\n");
-            close(udpSockFd);
+            close(udp_sock_fd);
             exit(EXIT_FAILURE);
         } else {
-            if (FD_ISSET(tcpSockFd, &recvSetCopy)){
-                addrLen = sizeof(struct sockaddr_storage);
-                if((recvSocket = accept(tcpSockFd, (struct sockaddr*) &senderAddr, &addrLen)) == -1){
+            if (FD_ISSET(tcp_sock_fd, &recv_set_copy)){
+                addr_len = sizeof(struct sockaddr_storage);
+                if((recv_socket = accept(tcp_sock_fd, 
+                                (struct sockaddr*) &sender_addr, 
+                                &addr_len)) == -1){
                     fprintf(stdout, "Failed connection attempt\n");
                 }
             } else {
-                numbytes = recvmsg(udpSockFd, &msg, 0);
-                hdr = (struct pktHdr *) buf;
+                numbytes = recvmsg(udp_sock_fd, &msg, 0);
+                hdr = (struct pkt_hdr *) buf;
 
                 if(hdr->type != NEW_SESSION){
                     fprintf(stdout, "Received an incorrect packet\n");
@@ -299,14 +314,18 @@ void networkEventLoop(int32_t udpSockFd, int32_t tcpSockFd){
 
             //The combination adress + port is used for lookup in the currently
             //running threads
-            if(senderAddr.ss_family == AF_INET){
-                inet_ntop(AF_INET, &(((struct sockaddr_in *) &senderAddr)->sin_addr),\
-                        addrPresentation, INET6_ADDRSTRLEN);
-                recvPort = ntohs(((struct sockaddr_in *) &senderAddr)->sin_port);
-            } else if(senderAddr.ss_family == AF_INET6){
-                inet_ntop(AF_INET6, &(((struct sockaddr_in6 *) &senderAddr)->sin6_addr),\
-                        addrPresentation, INET6_ADDRSTRLEN);
-                recvPort = ntohs(((struct sockaddr_in6 *) &senderAddr)->sin6_port);
+            if(sender_addr.ss_family == AF_INET){
+                inet_ntop(AF_INET, 
+                        &(((struct sockaddr_in *) &sender_addr)->sin_addr),
+                        addr_presentation, INET6_ADDRSTRLEN);
+                recv_port = 
+                    ntohs(((struct sockaddr_in *) &sender_addr)->sin_port);
+            } else if(sender_addr.ss_family == AF_INET6){
+                inet_ntop(AF_INET6, 
+                        &(((struct sockaddr_in6 *) &sender_addr)->sin6_addr),
+                        addr_presentation, INET6_ADDRSTRLEN);
+                recv_port = 
+                    ntohs(((struct sockaddr_in6 *) &sender_addr)->sin6_port);
             }
 
             //Check that I have not already started the thread belonging to
@@ -316,14 +335,15 @@ void networkEventLoop(int32_t udpSockFd, int32_t tcpSockFd){
             //Wors-case, the session request will be accepted on the next
             //request
             for(i = 0; i<NUM_THREADS; i++){
-                if(threadInfos[i]->status == RUNNING && \
-                        threadInfos[i]->source.ss_family == senderAddr.ss_family){
-                    if(senderAddr.ss_family == AF_INET && \
-                            !memcmp(&senderAddr, &threadInfos[i]->source, \
+                if(thread_infos[i]->status == RUNNING && 
+                        thread_infos[i]->source.ss_family == 
+                        sender_addr.ss_family){
+                    if(sender_addr.ss_family == AF_INET &&
+                            !memcmp(&sender_addr, &thread_infos[i]->source,
                             sizeof(struct sockaddr_in))){
                         break;
-                    } else if(senderAddr.ss_family == AF_INET6 && \
-                            !memcmp(&senderAddr, &threadInfos[i]->source, \
+                    } else if(sender_addr.ss_family == AF_INET6 &&
+                            !memcmp(&sender_addr, &thread_infos[i]->source,
                             sizeof(struct sockaddr_in6))){
                         break;
                     }
@@ -331,30 +351,33 @@ void networkEventLoop(int32_t udpSockFd, int32_t tcpSockFd){
             }
 
             if(i!=NUM_THREADS){
-                fprintf(stdout, "This session has already been seen (%s:%d)\n", addrPresentation, recvPort);
+                fprintf(stdout, "This session has already been seen (%s:%d)\n", 
+                        addr_presentation, recv_port);
                 continue;
             }
 
             for(i=0; i<NUM_THREADS; i++){
                 //Found an availale thread. Initialise and start
-                if(threadInfos[i]->status == PAUSED){
-                    if(recvSocket > 0){
-                        threadInfos[i]->tcpSockFd = recvSocket;
+                if(thread_infos[i]->status == PAUSED){
+                    if(recv_socket > 0){
+                        thread_infos[i]->tcp_sock_fd = recv_socket;
                     } else{
-                        newSPkt = (struct newSessionPkt *) buf;
-                        threadInfos[i]->duration = newSPkt->duration;
-                        threadInfos[i]->bandwidth = newSPkt->bw;
-                        threadInfos[i]->payloadLen = newSPkt->payload_len;
+                        new_s_pkt = (struct new_session_pkt *) buf;
+                        thread_infos[i]->duration = new_s_pkt->duration;
+                        thread_infos[i]->bandwidth = new_s_pkt->bw;
+                        thread_infos[i]->payload_len = new_s_pkt->payload_len;
                     }
 
-                    memcpy(&threadInfos[i]->source, &senderAddr, sizeof(struct sockaddr_storage));
+                    memcpy(&thread_infos[i]->source, &sender_addr, 
+                            sizeof(struct sockaddr_storage));
                     
                     //Signal thread that it has work to do
-                    pthread_mutex_lock(&(threadInfos[i]->newSessionMutex));
-                    threadInfos[i]->status = RUNNING;
-                    pthread_cond_signal(&(threadInfos[i]->newSession));
-                    pthread_mutex_unlock(&(threadInfos[i]->newSessionMutex));
-                    fprintf(stdout, "Created a new session for %s:%d\n", addrPresentation, recvPort);
+                    pthread_mutex_lock(&(thread_infos[i]->new_session_mutex));
+                    thread_infos[i]->status = RUNNING;
+                    pthread_cond_signal(&(thread_infos[i]->new_session));
+                    pthread_mutex_unlock(&(thread_infos[i]->new_session_mutex));
+                    fprintf(stdout, "Created a new session for %s:%d\n", 
+                            addr_presentation, recv_port);
                     break;
                 }
             }
@@ -366,10 +389,10 @@ void networkEventLoop(int32_t udpSockFd, int32_t tcpSockFd){
                 buf[0] = SENDER_FULL;
                 iov.iov_len = 1;
 
-                if(recvSocket > 0){
-                    close(recvSocket);
+                if(recv_socket > 0){
+                    close(recv_socket);
                 } else
-                    sendmsg(udpSockFd, &msg, 0);
+                    sendmsg(udp_sock_fd, &msg, 0);
 
                 iov.iov_len = sizeof(buf);
                 //Send message that sender is full
@@ -385,9 +408,9 @@ void usage(){
 }
 
 int main(int argc, char *argv[]){
-    char *srcIp = NULL, *srcPort = NULL;
+    char *src_ip = NULL, *src_port = NULL;
     int32_t c;
-    int32_t udpSockFd, tcpSockFd;
+    int32_t udp_sock_fd, tcp_sock_fd;
 
     //Mandatory arguments + values
     if(argc != 5){
@@ -398,10 +421,10 @@ int main(int argc, char *argv[]){
     while((c = getopt(argc, argv, "s:p:")) != -1){
         switch(c){
             case 's':
-                srcIp = optarg;
+                src_ip = optarg;
                 break;
             case 'p':
-                srcPort = optarg;
+                src_port = optarg;
                 break;
             default:
                 usage();
@@ -409,24 +432,24 @@ int main(int argc, char *argv[]){
         }
     }
 
-    if(srcIp == NULL || srcPort == NULL){
+    if(src_ip == NULL || src_port == NULL){
         usage();
         exit(EXIT_FAILURE);
     } else {
-        fprintf(stdout, "Source IP: %s:%s\n", srcIp, srcPort);
+        fprintf(stdout, "Source IP: %s:%s\n", src_ip, src_port);
     }
 
-    if((udpSockFd = bind_local(srcIp, srcPort, SOCK_DGRAM, 0)) == -1){
+    if((udp_sock_fd = bind_local(src_ip, src_port, SOCK_DGRAM, 0)) == -1){
         fprintf(stdout, "Could not create UDP socket\n");
         exit(EXIT_FAILURE);
     }
 
     //I can have one UDP and one TCP socket bound to same port
-    if((tcpSockFd = bind_local(srcIp, srcPort, SOCK_STREAM, 1)) == -1){
+    if((tcp_sock_fd = bind_local(src_ip, src_port, SOCK_STREAM, 1)) == -1){
         fprintf(stdout, "Could not create TCP socket\n");
         exit(EXIT_FAILURE);
     }
 
-    networkEventLoop(udpSockFd, tcpSockFd);
+    network_event_loop(udp_sock_fd, tcp_sock_fd);
     return 0;
 }
