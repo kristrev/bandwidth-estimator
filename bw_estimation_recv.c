@@ -20,7 +20,8 @@
 //Removed log file, because writing to disk takes time. If required, pipe output
 //Check out this timestamping.c example in documentation/networking
 
-socklen_t fillSenderAddr(struct sockaddr_storage *senderAddr, char *senderIp, char *senderPort){
+socklen_t fillSenderAddr(struct sockaddr_storage *senderAddr, char *senderIp,
+        char *senderPort){
     socklen_t addrLen = 0;
     struct addrinfo hints, *servinfo;
     int rv;
@@ -94,7 +95,8 @@ void networkLoopTcp(int32_t tcpSockFd, int16_t duration, FILE *outputFile){
 
         gettimeofday(&t1, NULL);
         if(outputFile)
-            fprintf(outputFile, "%lu.%lu %zd\n", t1.tv_sec, t1.tv_usec, numbytes);
+            fprintf(outputFile, "%lu.%lu %zd\n", t1.tv_sec, t1.tv_usec,
+                    numbytes);
         totalNumberBytes += numbytes;
 
         if((t1.tv_sec - t0.tv_sec) > duration)
@@ -102,10 +104,14 @@ void networkLoopTcp(int32_t tcpSockFd, int16_t duration, FILE *outputFile){
     }
 
     if(totalNumberBytes > 0){
-        dataInterval = (t1.tv_sec - t0.tv_sec) + ((t1.tv_usec - t0.tv_usec)/1000000.0);
-        estimatedBandwidth = ((totalNumberBytes / 1000000.0) * 8) / dataInterval;
+        dataInterval = (t1.tv_sec - t0.tv_sec) +
+                       ((t1.tv_usec - t0.tv_usec)/1000000.0);
+        estimatedBandwidth = ((totalNumberBytes / 1000000.0) * 8)
+                             / dataInterval;
         //Computations?
-        fprintf(stdout, "Received %zd bytes in %.2f seconds. Estimated bandwidth %.2f Mbit/s\n", totalNumberBytes, dataInterval, estimatedBandwidth);
+        fprintf(stdout, "Received %zd bytes in %.2f seconds. Estimated"
+                "bandwidth %.2f Mbit/s\n", totalNumberBytes, dataInterval,
+                estimatedBandwidth);
     } else {
         fprintf(stdout, "Received no data from server. All threads busy?\n");
     }
@@ -113,8 +119,9 @@ void networkLoopTcp(int32_t tcpSockFd, int16_t duration, FILE *outputFile){
     close(tcpSockFd);
 }
 
-void networkLoopUdp(int32_t udpSockFd, int16_t bandwidth, int16_t duration, \
-        int16_t payloadLen, struct sockaddr_storage *senderAddr, socklen_t senderAddrLen, FILE *outputFile){
+void networkLoopUdp(int32_t udpSockFd, int16_t bandwidth, int16_t duration,
+        int16_t payloadLen, struct sockaddr_storage *senderAddr, 
+        socklen_t senderAddrLen, FILE *outputFile){
 
     fd_set recvSet;
     fd_set recvSetCopy;
@@ -186,14 +193,17 @@ void networkLoopUdp(int32_t udpSockFd, int16_t bandwidth, int16_t duration, \
         if(retval == 0){
             if(state == RECEIVING){
                 //Might be able to compute somethig, therefore break
-                fprintf(stdout, "%d seconds passed without any traffic, aborting\n", duration); 
+                fprintf(stdout, "%d seconds passed without any traffic," 
+                        "aborting\n", duration); 
                 break;
             } else if(consecutiveRetrans == RETRANSMISSION_THRESHOLD){
-                fprintf(stdout, "Did not receive any reply to NEW_SESSION, aborting\n");
+                fprintf(stdout, "Did not receive any reply to NEW_SESSION," 
+                        "aborting\n");
                 exit(EXIT_FAILURE);
             } else {
                 //Send retransmission
-                fprintf(stdout, "Retransmitting NEW_SESSION. Consecutive retransmissions %d\n", ++consecutiveRetrans);
+                fprintf(stdout, "Retransmitting NEW_SESSION. Consecutive" 
+                        "retransmissions %d\n", ++consecutiveRetrans);
                 sendmsg(udpSockFd, &msg, 0);
             }
         } else {
@@ -204,10 +214,12 @@ void networkLoopUdp(int32_t udpSockFd, int16_t bandwidth, int16_t duration, \
 
             if(hdr->type == DATA){
                 cmsg = CMSG_FIRSTHDR(&msg);
-                if(cmsg->cmsg_level == SOL_SOCKET && cmsg->cmsg_type == SO_TIMESTAMPNS){
+                if(cmsg->cmsg_level == SOL_SOCKET && cmsg->cmsg_type == 
+                        SO_TIMESTAMPNS){
                     recvTime = (struct timespec *) CMSG_DATA(cmsg);
                     if(outputFile != NULL)
-                        fprintf(outputFile, "%lu.%lu %zd\n", recvTime->tv_sec, recvTime->tv_nsec, numbytes);
+                        fprintf(outputFile, "%lu.%lu %zd\n", recvTime->tv_sec, 
+                                recvTime->tv_nsec, numbytes);
                 }
 
                 if(state == STARTING){
@@ -231,10 +243,14 @@ void networkLoopUdp(int32_t udpSockFd, int16_t bandwidth, int16_t duration, \
     }
 
     if(totalNumberBytes > 0){
-        dataInterval = (t1.tv_sec - t0.tv_sec) + ((t1.tv_nsec - t0.tv_nsec)/1000000000.0);
-        estimatedBandwidth = ((totalNumberBytes / 1000000.0) * 8) / dataInterval;
+        dataInterval = (t1.tv_sec - t0.tv_sec) + 
+            ((t1.tv_nsec - t0.tv_nsec)/1000000000.0);
+        estimatedBandwidth = 
+            ((totalNumberBytes / 1000000.0) * 8) / dataInterval;
         //Computations?
-        fprintf(stdout, "Received %zd bytes in %.2f seconds. Estimated bandwidth %.2f Mbit/s\n", totalNumberBytes, dataInterval, estimatedBandwidth);
+        fprintf(stdout, "Received %zd bytes in %.2f seconds. Estimated" 
+                "bandwidth %.2f Mbit/s\n", totalNumberBytes, dataInterval, 
+                estimatedBandwidth);
     }
 
     close(udpSockFd);
@@ -268,8 +284,7 @@ int bind_local(char *local_addr, char *local_port, int socktype){
       continue;
     }
 
-    //TODO: Improve to use hardware timestamps, if available
-    if(setsockopt(sockfd, SOL_SOCKET, SO_TIMESTAMPNS, &yes, sizeof(int)) == -1) {
+    if(setsockopt(sockfd, SOL_SOCKET, SO_TIMESTAMPNS, &yes, sizeof(int)) == -1){
       close(sockfd);
       perror("Setsockopt (timestamp)");
       continue;
@@ -296,7 +311,8 @@ int bind_local(char *local_addr, char *local_port, int socktype){
 
 void usage(){
     fprintf(stdout, "Supported command line arguments\n");
-    fprintf(stdout, "-b : Bandwidth (in Mbit/s, only integers and only needed with UDP)\n");
+    fprintf(stdout, "-b : Bandwidth (in Mbit/s, only integers and only needed" 
+            "with UDP)\n");
     fprintf(stdout, "-t : Duration of test (in seconds)\n");
     fprintf(stdout, "-l : Payload length (in bytes), only needed with UDP\n");
     fprintf(stdout, "-s : Source IP to bind to\n");
@@ -350,7 +366,8 @@ int main(int argc, char *argv[]){
         }
     }
 
-    if(duration == 0 || srcIp == NULL || senderIp == NULL || senderPort == NULL){
+    if(duration == 0 || srcIp == NULL || senderIp == NULL || 
+            senderPort == NULL){
         usage();
         exit(EXIT_FAILURE);
     }
@@ -371,8 +388,8 @@ int main(int argc, char *argv[]){
     }
 
     //Use stdout for all non-essential information
-    fprintf(stdout, "Bandwidth %d Mbit/s, Duration %d sec, Payload length %d bytes, Source IP %s\n", \
-            bandwidth, duration, payloadLen, srcIp);
+    fprintf(stdout, "Bandwidth %d Mbit/s, Duration %d sec, Payload length " 
+            "%d bytes, Source IP %s\n", bandwidth, duration, payloadLen, srcIp);
 
     if(useTcp)
         socktype = SOCK_STREAM;
@@ -388,18 +405,19 @@ int main(int argc, char *argv[]){
     memset(&senderAddr, 0, sizeof(struct sockaddr_storage));
     
     if(!(senderAddrLen = fillSenderAddr(&senderAddr, senderIp, senderPort))){
-        fprintf(stdout, "Could not fill sender address struct. Is the address correct?\n");
+        fprintf(stdout, "Could not fill sender address struct. Is the address " 
+                "correct?\n");
         exit(EXIT_FAILURE);
     }
 
     //I could just have outputted the command line paramteres, but this serves
     //asa nice example on how use inet_ntop + sockaddr_storage
     if(senderAddr.ss_family == AF_INET){
-        inet_ntop(AF_INET, &(((struct sockaddr_in *) &senderAddr)->sin_addr),\
+        inet_ntop(AF_INET, &(((struct sockaddr_in *) &senderAddr)->sin_addr),
                 addrPresentation, INET6_ADDRSTRLEN);
         fprintf(stdout, "Sender (IPv4) %s:%s\n", addrPresentation, senderPort);
     } else if(senderAddr.ss_family == AF_INET6){
-        inet_ntop(AF_INET6, &(((struct sockaddr_in6 *) &senderAddr)->sin6_addr),\
+        inet_ntop(AF_INET6, &(((struct sockaddr_in6 *) &senderAddr)->sin6_addr),
                 addrPresentation, INET6_ADDRSTRLEN);
         fprintf(stdout, "Sender (IPv6) %s:%s\n", addrPresentation, senderPort);
     }
@@ -408,9 +426,11 @@ int main(int argc, char *argv[]){
         //I could use connect with UDP too, but I have some bad experiences with
         //side-effects of doing that.
         if(senderAddr.ss_family == AF_INET)
-            retval = connect(socketFd, (struct sockaddr *) &senderAddr, sizeof(struct sockaddr_in));
+            retval = connect(socketFd, (struct sockaddr *) &senderAddr, 
+                    sizeof(struct sockaddr_in));
         else
-            retval = connect(socketFd, (struct sockaddr *) &senderAddr, sizeof(struct sockaddr_in6));
+            retval = connect(socketFd, (struct sockaddr *) &senderAddr, 
+                    sizeof(struct sockaddr_in6));
 
         if(retval < 0){
             fprintf(stdout, "Could not connect to sender, aborting\n");
@@ -419,7 +439,8 @@ int main(int argc, char *argv[]){
 
         networkLoopTcp(socketFd, duration, outputFile);
     } else
-        networkLoopUdp(socketFd, bandwidth, duration, payloadLen, &senderAddr, senderAddrLen, outputFile);
+        networkLoopUdp(socketFd, bandwidth, duration, payloadLen, &senderAddr, 
+                senderAddrLen, outputFile);
 
     return 0;
 }
