@@ -202,7 +202,7 @@ void network_loop_udp(int32_t udp_sock_fd, int16_t bandwidth, int16_t duration,
             tv.tv_usec = 0;
         } else {
             //The timeout is reset for each data packet I receive
-            tv.tv_sec = duration > DEFAULT_TIMEOUT ? duration : DEFAULT_TIMEOUT; 
+            tv.tv_sec = DEFAULT_TIMEOUT; 
             tv.tv_usec = 0;
         }
 
