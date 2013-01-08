@@ -6,7 +6,7 @@ bandwidth. It was developed out of frustration with iperf, as well as a desire
 to easier get a look into how packets are received. The latter is especially
 important in mobile broadband networks, as they are both statefull and full of
 middleboxes that often do nasty things. On the machines I have tested, the
-generator is able to send packets at up to 950~Mbit/s.
+generator is able to send packets at up to 950 Mbit/s.
 
 Bandwidth estimator consists of two application, a receiver and a traffic
 generator, and, unlike iperf, only the generator is required to have a public IP
