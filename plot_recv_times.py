@@ -36,11 +36,7 @@ while True:
     tstamp, numbytes = float(line[0]), int(line[1])
 
     if tstamp > cur_interval_end:
-        print cur_interval_start, cur_interval_end, num_mes
-
-        if num_mes == 0:
-            break
-        #print x_val, interval_bytes
+        print x_val, interval_bytes
         x_val += 1
         interval_bytes = 0
         num_mes = 0
