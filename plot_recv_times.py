@@ -20,6 +20,7 @@ logfile.seek(0, os.SEEK_SET)
 x_val = 0
 read = True
 interval_bytes = 0
+num_mes = 0
 
 while True:
     #To avoid the additional function, have a check here for read. This is set
@@ -35,17 +36,24 @@ while True:
     tstamp, numbytes = float(line[0]), int(line[1])
 
     if tstamp > cur_interval_end:
-        print cur_interval_start, cur_interval_end
+        print cur_interval_start, cur_interval_end, num_mes
 
-        print x_val, interval_bytes
+        if num_mes == 0:
+            break
+        #print x_val, interval_bytes
         x_val += 1
         interval_bytes = 0
+        num_mes = 0
 
         read = False
         cur_interval_start = cur_interval_end
         cur_interval_end = cur_interval_start + (interval_length / 1000.0)
     else:
+        #if tstamp > 1357573434.78 and tstamp < 1357573434.88:
+        #    print tstamp, cur_interval_start, cur_interval_end
+
         read = True
         interval_bytes += numbytes
+        num_mes += 1
 
 logfile.close()

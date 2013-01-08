@@ -75,7 +75,7 @@ void network_loop_tcp(int32_t tcp_sock_fd, int16_t duration, FILE *output_file){
     struct timeval t0, t1;
     double data_interval;
     double estimated_bandwidth;
-    
+
     //Receiving packet + control data
     struct msghdr msg;
     struct iovec iov;
@@ -112,8 +112,10 @@ void network_loop_tcp(int32_t tcp_sock_fd, int16_t duration, FILE *output_file){
 
         gettimeofday(&t1, NULL);
         if(output_file)
-            fprintf(output_file, "%lu.%lu %zd\n", t1.tv_sec, t1.tv_usec,
-                    numbytes);
+            //I have to convert the usec to 1/10 seconds for the output to be 
+            //correct
+            fprintf(output_file, "%.6f %zd\n", t1.tv_sec +
+                    t1.tv_usec/1000000.0, numbytes);
         total_number_bytes += numbytes;
 
         if((t1.tv_sec - t0.tv_sec) > duration)
@@ -233,8 +235,9 @@ void network_loop_udp(int32_t udp_sock_fd, int16_t bandwidth, int16_t duration,
                         SO_TIMESTAMPNS){
                     recv_time = (struct timespec *) CMSG_DATA(cmsg);
                     if(output_file != NULL)
-                        fprintf(output_file, "%lu.%lu %zd\n", recv_time->tv_sec, 
-                                recv_time->tv_nsec, numbytes);
+                        fprintf(output_file, "%.9f %zd\n", 
+                                recv_time->tv_sec + 
+                                recv_time->tv_nsec/1000000000.0, numbytes);
                 }
 
                 if(state == STARTING){
