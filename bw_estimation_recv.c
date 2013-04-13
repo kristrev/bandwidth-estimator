@@ -48,7 +48,7 @@ socklen_t fill_sender_addr(struct sockaddr_storage *sender_addr,
     hints.ai_family = AF_UNSPEC;
 
     if((rv = getaddrinfo(sender_ip, sender_port, &hints, &servinfo)) != 0){
-        fprintf(stdout, "Getaddrinfo failed for sender address\n");
+        fprintf(stderr, "Getaddrinfo failed for sender address\n");
         return 0;
     }
 
@@ -127,11 +127,11 @@ void network_loop_tcp(int32_t tcp_sock_fd, int16_t duration, FILE *output_file){
                        ((t1.tv_usec - t0.tv_usec)/1000000.0);
         estimated_bandwidth = ((total_number_bytes / 1000000.0) * 8)
                              / data_interval;
-        fprintf(stdout, "Received %zd bytes in %.2f seconds. Estimated"
+        fprintf(stderr, "Received %zd bytes in %.2f seconds. Estimated"
                 "bandwidth %.2f Mbit/s\n", total_number_bytes, data_interval,
                 estimated_bandwidth);
     } else {
-        fprintf(stdout, "Received no data from server. All threads busy?\n");
+        fprintf(stderr, "Received no data from server. All threads busy?\n");
     }
         
     close(tcp_sock_fd);
@@ -189,10 +189,10 @@ void network_loop_udp(int32_t udp_sock_fd, int16_t bandwidth, int16_t duration,
 
     numbytes = sendmsg(udp_sock_fd, &msg, 0);
     if(numbytes <= 0){
-        fprintf(stdout, "Failed to send initial NEW_SESSION message\n");
+        fprintf(stderr, "Failed to send initial NEW_SESSION message\n");
         exit(EXIT_FAILURE);
     } else {
-        fprintf(stdout, "Sent first NEW_SESSION message\n");
+        fprintf(stderr, "Sent first NEW_SESSION message\n");
     }
 
     while(1){
@@ -210,16 +210,16 @@ void network_loop_udp(int32_t udp_sock_fd, int16_t bandwidth, int16_t duration,
         if(retval == 0){
             if(state == RECEIVING){
                 //Might be able to compute somethig, therefore break
-                fprintf(stdout, "%d seconds passed without any traffic," 
+                fprintf(stderr, "%d seconds passed without any traffic," 
                         "aborting\n", duration); 
                 break;
             } else if(consecutive_retrans == RETRANSMISSION_THRESHOLD){
-                fprintf(stdout, "Did not receive any reply to NEW_SESSION," 
+                fprintf(stderr, "Did not receive any reply to NEW_SESSION," 
                         "aborting\n");
                 exit(EXIT_FAILURE);
             } else {
                 //Send retransmission
-                fprintf(stdout, "Retransmitting NEW_SESSION. Consecutive " 
+                fprintf(stderr, "Retransmitting NEW_SESSION. Consecutive " 
                         "retransmissions %d\n", ++consecutive_retrans);
                 sendmsg(udp_sock_fd, &msg, 0);
             }
@@ -248,13 +248,13 @@ void network_loop_udp(int32_t udp_sock_fd, int16_t bandwidth, int16_t duration,
                 memcpy(&t1, recv_time, sizeof(struct timespec));
                 total_number_bytes += numbytes;
             } else if(hdr->type == END_SESSION){
-                fprintf(stdout, "End session\n");
+                fprintf(stderr, "End session\n");
                 break;
             } else if(hdr->type == SENDER_FULL){
-                fprintf(stdout, "Sender is full, cant serve more clients\n");
+                fprintf(stderr, "Sender is full, cant serve more clients\n");
                 break;
             } else {
-                fprintf(stdout, "Unkown\n");
+                fprintf(stderr, "Unkown\n");
             }
         }
 
@@ -266,7 +266,7 @@ void network_loop_udp(int32_t udp_sock_fd, int16_t bandwidth, int16_t duration,
         estimated_bandwidth = 
             ((total_number_bytes / 1000000.0) * 8) / data_interval;
         //Computations?
-        fprintf(stdout, "Received %zd bytes in %.2f seconds. Estimated " 
+        fprintf(stderr, "Received %zd bytes in %.2f seconds. Estimated " 
                 "bandwidth %.2f Mbit/s\n", total_number_bytes, data_interval, 
                 estimated_bandwidth);
     }
@@ -286,31 +286,31 @@ int bind_local(char *local_addr, char *local_port, int socktype){
   hints.ai_socktype = socktype;
   
   if((rv = getaddrinfo(local_addr, local_port, &hints, &info)) != 0){
-    fprintf(stdout, "Getaddrinfo (local) failed: %s\n", gai_strerror(rv));
+    fprintf(stderr, "Getaddrinfo (local) failed: %s\n", gai_strerror(rv));
     return -1;
   }
   
   for(p = info; p != NULL; p = p->ai_next){
     if((sockfd = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1){
-      fprintf(stdout, "Socket:");
+      fprintf(stderr, "Socket:");
       continue;
     }
 
     if(setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) == -1) {
       close(sockfd);
-      fprintf(stdout, "Setsockopt (reuseaddr)");
+      fprintf(stderr, "Setsockopt (reuseaddr)");
       continue;
     }
 
     if(setsockopt(sockfd, SOL_SOCKET, SO_TIMESTAMPNS, &yes, sizeof(int)) == -1){
       close(sockfd);
-      fprintf(stdout, "Setsockopt (timestamp)");
+      fprintf(stderr, "Setsockopt (timestamp)");
       continue;
     }
 
     if(bind(sockfd, p->ai_addr, p->ai_addrlen) == -1){
       close(sockfd);
-      fprintf(stdout, "Bind (local)");
+      fprintf(stderr, "Bind (local)");
       continue;
     }
 
@@ -318,7 +318,7 @@ int bind_local(char *local_addr, char *local_port, int socktype){
   }
 
   if(p == NULL){
-    fprintf(stdout, "Local bind failed\n");
+    fprintf(stderr, "Local bind failed\n");
     freeaddrinfo(info);  
     return -1;
   }
@@ -329,16 +329,16 @@ int bind_local(char *local_addr, char *local_port, int socktype){
 }
 
 void usage(){
-    fprintf(stdout, "Supported command line arguments\n");
-    fprintf(stdout, "-b : Bandwidth (in Mbit/s, only integers and only needed" 
+    fprintf(stderr, "Supported command line arguments\n");
+    fprintf(stderr, "-b : Bandwidth (in Mbit/s, only integers and only needed" 
             "with UDP)\n");
-    fprintf(stdout, "-t : Duration of test (in seconds)\n");
-    fprintf(stdout, "-l : Payload length (in bytes), only needed with UDP\n");
-    fprintf(stdout, "-s : Source IP to bind to\n");
-    fprintf(stdout, "-d : Destion IP\n");
-    fprintf(stdout, "-p : Destion port\n");
-    fprintf(stdout, "-r : Use TCP (reliable) instead of UDP\n");
-    fprintf(stdout, "-w : Provide an optional filename for writing the "\
+    fprintf(stderr, "-t : Duration of test (in seconds)\n");
+    fprintf(stderr, "-l : Payload length (in bytes), only needed with UDP\n");
+    fprintf(stderr, "-s : Source IP to bind to\n");
+    fprintf(stderr, "-d : Destion IP\n");
+    fprintf(stderr, "-p : Destion port\n");
+    fprintf(stderr, "-r : Use TCP (reliable) instead of UDP\n");
+    fprintf(stderr, "-w : Provide an optional filename for writing the "\
             "packet receive times\n");
 
 }
@@ -398,17 +398,17 @@ int main(int argc, char *argv[]){
     }
 
     if(payload_len > MAX_PAYLOAD_LEN){
-        fprintf(stdout, "Payload length exceeds limit (%d)\n", MAX_PAYLOAD_LEN);
+        fprintf(stderr, "Payload length exceeds limit (%d)\n", MAX_PAYLOAD_LEN);
         exit(EXIT_FAILURE);
     }
 
     if(file_name != NULL && ((output_file = fopen(file_name, "w")) == NULL)){
-        fprintf(stdout, "Failed to open output file\n");
+        fprintf(stderr, "Failed to open output file\n");
         exit(EXIT_FAILURE);
     }
 
-    //Use stdout for all non-essential information
-    fprintf(stdout, "Bandwidth %d Mbit/s, Duration %d sec, Payload length " 
+    //Use stderr for all non-essential information
+    fprintf(stderr, "Bandwidth %d Mbit/s, Duration %d sec, Payload length " 
             "%d bytes, Source IP %s\n", bandwidth, duration, payload_len, src_ip);
 
     if(use_tcp)
@@ -416,16 +416,16 @@ int main(int argc, char *argv[]){
 
     //Bind network socket
     if((socket_fd = bind_local(src_ip, NULL, socktype)) == -1){
-        fprintf(stdout, "Binding to local IP failed\n");
+        fprintf(stderr, "Binding to local IP failed\n");
         exit(EXIT_FAILURE);
     }
 
-    fprintf(stdout, "Network socket %d\n", socket_fd);
+    fprintf(stderr, "Network socket %d\n", socket_fd);
 
     memset(&sender_addr, 0, sizeof(struct sockaddr_storage));
     
     if(!(sender_addr_len = fill_sender_addr(&sender_addr, sender_ip, sender_port))){
-        fprintf(stdout, "Could not fill sender address struct. Is the address " 
+        fprintf(stderr, "Could not fill sender address struct. Is the address " 
                 "correct?\n");
         exit(EXIT_FAILURE);
     }
@@ -435,11 +435,11 @@ int main(int argc, char *argv[]){
     if(sender_addr.ss_family == AF_INET){
         inet_ntop(AF_INET, &(((struct sockaddr_in *) &sender_addr)->sin_addr),
                 addr_presentation, INET6_ADDRSTRLEN);
-        fprintf(stdout, "Sender (IPv4) %s:%s\n", addr_presentation, sender_port);
+        fprintf(stderr, "Sender (IPv4) %s:%s\n", addr_presentation, sender_port);
     } else if(sender_addr.ss_family == AF_INET6){
         inet_ntop(AF_INET6, &(((struct sockaddr_in6 *) &sender_addr)->sin6_addr),
                 addr_presentation, INET6_ADDRSTRLEN);
-        fprintf(stdout, "Sender (IPv6) %s:%s\n", addr_presentation, sender_port);
+        fprintf(stderr, "Sender (IPv6) %s:%s\n", addr_presentation, sender_port);
     }
 
     if(use_tcp){
@@ -453,7 +453,7 @@ int main(int argc, char *argv[]){
                     sizeof(struct sockaddr_in6));
 
         if(retval < 0){
-            fprintf(stdout, "Could not connect to sender, aborting\n");
+            fprintf(stderr, "Could not connect to sender, aborting\n");
             exit(EXIT_FAILURE);
         }
 
