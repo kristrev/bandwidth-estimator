@@ -22,6 +22,8 @@
 #define RETRANSMISSION_THRESHOLD 5
 #define DEFAULT_TIMEOUT 60 //Timeout waiting for the next data pack/END_SESSION
 
+#define NUM_CONN_ATTEMPTS 5
+
 //Define three states, STARTING, RECEIVING, ENDING
 //- STARTING: Send NEW_SESSION every TIMEOUT second, up to N times. Abort if
 //no reply is received X seconds after last message

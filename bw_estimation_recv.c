@@ -63,7 +63,10 @@ socklen_t fill_sender_addr(struct sockaddr_storage *sender_addr,
 
 //These two functions could be merged, but I think the code is cleaner if they
 //are separated
-void network_loop_tcp(int32_t tcp_sock_fd, int16_t duration, FILE *output_file){
+//Returns -1 when socket fails, 0 otherwise
+int8_t network_loop_tcp(int32_t tcp_sock_fd, uint16_t duration, FILE *output_file,
+		uint16_t iat, struct sockaddr_storage *sender_addr,
+		socklen_t sender_addr_len){
     //Related to select
     fd_set recv_set;
     fd_set recv_set_copy;
@@ -85,14 +88,34 @@ void network_loop_tcp(int32_t tcp_sock_fd, int16_t duration, FILE *output_file){
     FD_ZERO(&recv_set);
     FD_ZERO(&recv_set_copy);
     FD_SET(tcp_sock_fd, &recv_set);
-    memset(&msg, 0, sizeof(struct msghdr));
+    
+	memset(&msg, 0, sizeof(struct msghdr));
     memset(&iov, 0, sizeof(struct iovec));
 
     iov.iov_base = buf;
-    iov.iov_len = MAX_PAYLOAD_LEN;
+	iov.iov_len = sizeof(struct new_session_pkt);
     //Timestamping does not work with TCP due to collapsing of packets
+    msg.msg_name = (void *) sender_addr;
+    msg.msg_namelen = sender_addr_len;
     msg.msg_iov = &iov;
     msg.msg_iovlen = 1;
+
+	//Send initial new session packet. Only relevant info for TCP is the iat
+	struct new_session_pkt *session_pkt = (struct new_session_pkt *) buf; 
+    session_pkt->iat = iat;
+
+	numbytes = sendmsg(tcp_sock_fd, &msg, 0);
+
+	if (numbytes <= 0) {
+		fprintf(stderr, "Failed to send initial TCP info message\n");
+		return;
+	}
+
+	//Set iov/msg to value used on receive
+	memset(&msg, 0, sizeof(struct msghdr));
+	msg.msg_iov = &iov;
+	msg.msg_iovlen = 1;
+	iov.iov_len = MAX_PAYLOAD_LEN;
 
     while(1){
         recv_set_copy = recv_set;
@@ -101,24 +124,30 @@ void network_loop_tcp(int32_t tcp_sock_fd, int16_t duration, FILE *output_file){
         iov.iov_len = sizeof(buf);
         numbytes = recvmsg(tcp_sock_fd, &msg, 0);
 
+		gettimeofday(&t1, NULL);
+
+        if(output_file) {
+            //I have to convert the usec to 1/10 seconds for the output to be 
+            //correct
+            fprintf(output_file, "%.6f %zd\n", t1.tv_sec +
+                    t1.tv_usec/1000000.0, numbytes);
+
+			//TODO: Make this one more dynamic, because of the SD card issues?
+			fflush(output_file);
+		}
+ 
         //Server had to close connection
         if(numbytes <= 0)
-            break;
+			return -1;
 
         //This will be less accurate than for UDP, using application layer
         //timestamps
         if(total_number_bytes == 0)
             gettimeofday(&t0, NULL);
 
-        gettimeofday(&t1, NULL);
-        if(output_file)
-            //I have to convert the usec to 1/10 seconds for the output to be 
-            //correct
-            fprintf(output_file, "%.6f %zd\n", t1.tv_sec +
-                    t1.tv_usec/1000000.0, numbytes);
-        total_number_bytes += numbytes;
+       total_number_bytes += numbytes;
 
-        if((t1.tv_sec - t0.tv_sec) > duration)
+        if (duration && (t1.tv_sec - t0.tv_sec) > duration)
             break;
     }
 
@@ -135,6 +164,7 @@ void network_loop_tcp(int32_t tcp_sock_fd, int16_t duration, FILE *output_file){
     }
         
     close(tcp_sock_fd);
+	return 0;
 }
 
 void network_loop_udp(int32_t udp_sock_fd, int16_t bandwidth, int16_t duration,
@@ -332,7 +362,7 @@ void usage(){
     fprintf(stderr, "Supported command line arguments\n");
     fprintf(stderr, "-b : Bandwidth (in Mbit/s, only integers and only needed" 
             "with UDP)\n");
-    fprintf(stderr, "-t : Duration of test (in seconds)\n");
+    fprintf(stderr, "-t : Duration of test (in seconds). If set to 0, TCP will run idefinetly\n");
     fprintf(stderr, "-l : Payload length (in bytes), only needed with UDP\n");
     fprintf(stderr, "-s : Source IP to bind to\n");
     fprintf(stderr, "-d : Destion IP\n");
@@ -340,12 +370,12 @@ void usage(){
     fprintf(stderr, "-r : Use TCP (reliable) instead of UDP\n");
     fprintf(stderr, "-w : Provide an optional filename for writing the "\
             "packet receive times\n");
-
+	fprintf(stderr, "-i : ms between send() calls (TCP only)\n");
 }
 
 int main(int argc, char *argv[]){
-    uint8_t use_tcp = 0;
-    uint16_t bandwidth = 0, duration = 0, payload_len = 0;
+    uint8_t use_tcp = 0, num_conn_retries = 0;
+    uint16_t bandwidth = 0, duration = 0, payload_len = 0, iat = 0;
     char *src_ip = NULL, *sender_ip = NULL, *sender_port = NULL, 
          *file_name = NULL;
     int32_t retval, socket_fd = -1, socktype = SOCK_DGRAM;
@@ -354,7 +384,7 @@ int main(int argc, char *argv[]){
     char addr_presentation[INET6_ADDRSTRLEN];
     FILE *output_file = NULL;
 
-    while((retval = getopt(argc, argv, "b:t:l:s:d:p:w:r")) != -1){
+    while((retval = getopt(argc, argv, "b:t:l:s:d:p:w:i:r")) != -1){
         switch(retval){
             case 'b':
                 bandwidth = atoi(optarg);
@@ -380,14 +410,17 @@ int main(int argc, char *argv[]){
             case 'r':
                 use_tcp = 1;
                 break;
+			case 'i':
+				iat = atoi(optarg);
+				break;
             default:
                 usage();
                 exit(EXIT_FAILURE);
         }
     }
 
-    if(duration == 0 || src_ip == NULL || sender_ip == NULL || 
-            sender_port == NULL){
+    if((!use_tcp && duration == 0) || src_ip == NULL || sender_ip == NULL ||
+			sender_port == NULL){
         usage();
         exit(EXIT_FAILURE);
     }
@@ -445,22 +478,40 @@ int main(int argc, char *argv[]){
     if(use_tcp){
         //I could use connect with UDP too, but I have some bad experiences with
         //side-effects of doing that.
-        if(sender_addr.ss_family == AF_INET)
-            retval = connect(socket_fd, (struct sockaddr *) &sender_addr, 
-                    sizeof(struct sockaddr_in));
-        else
-            retval = connect(socket_fd, (struct sockaddr *) &sender_addr, 
-                    sizeof(struct sockaddr_in6));
+		while (1) {
+	        if(sender_addr.ss_family == AF_INET)
+		        retval = connect(socket_fd, (struct sockaddr *) &sender_addr, 
+			            sizeof(struct sockaddr_in));
+			else
+				retval = connect(socket_fd, (struct sockaddr *) &sender_addr, 
+						sizeof(struct sockaddr_in6));
 
-        if(retval < 0){
-            fprintf(stderr, "Could not connect to sender, aborting\n");
-            exit(EXIT_FAILURE);
-        }
+	        if(retval < 0){
+		        fprintf(stderr, "Could not connect to sender, aborting\n");
+				if (num_conn_retries++ < NUM_CONN_ATTEMPTS) {
+				    sleep(5);
+					continue;
+				} else {
+					exit(EXIT_FAILURE);
+				}
+			}
 
-        network_loop_tcp(socket_fd, duration, output_file);
+			retval = network_loop_tcp(socket_fd, duration, output_file, iat,
+					&sender_addr, sender_addr_len);
+
+			//Break loop on clean exit, retry if not
+			if (!retval)
+				break;
+			else
+				socket_fd = bind_local(src_ip, NULL, socktype);
+
+			//Abort if we fail to create socket
+			if (socket_fd == -1)
+				exit(EXIT_FAILURE);
+		}
     } else
         network_loop_udp(socket_fd, bandwidth, duration, payload_len, &sender_addr, 
                 sender_addr_len, output_file);
 
-    return 0;
+    exit(EXIT_SUCCESS);
 }

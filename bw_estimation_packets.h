@@ -41,6 +41,7 @@ struct new_session_pkt{
     uint16_t duration;
     uint16_t bw; //Bw in Mbit/s, only allow integers for now
     uint16_t payload_len;
+	uint16_t iat; //Time between packets in ms, only used for TCP
 };
 
 struct data_pkt{

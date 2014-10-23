@@ -117,9 +117,12 @@ int bind_local(char *local_addr, char *local_port, int socktype, uint8_t
 uint64_t generate_tcp_traffic(struct thread_info *thread_info){
     struct msghdr msg;
     struct iovec iov;
-    uint8_t buf[MAX_PAYLOAD_LEN] = {DATA};
+    uint8_t buf[MAX_PAYLOAD_LEN] = {0};
     int32_t numbytes = 0;
     uint64_t tot_bytes = 0;
+	struct new_session_pkt *pkt = (struct new_session_pkt*) buf;
+	struct timespec sleep_time;
+	uint8_t shall_sleep = 0;
 
     memset(&msg, 0, sizeof(struct msghdr));
     memset(&iov, 0, sizeof(struct iovec));
@@ -129,10 +132,38 @@ uint64_t generate_tcp_traffic(struct thread_info *thread_info){
     iov.iov_base = buf;
     iov.iov_len = MAX_PAYLOAD_LEN;
 
+	//Before sending, wait for session info packet
+	while (tot_bytes < sizeof(struct new_session_pkt)) {
+		numbytes = recvmsg(thread_info->tcp_sock_fd, &msg, 0);
+
+		if (numbytes <= 0) {
+			fprintf(stderr, "TCP socket failed, aborting\n");
+			return 0;
+		}
+
+		tot_bytes += numbytes;
+	}
+
+	fprintf(stdout, "IAT: %ums\n", pkt->iat);
+
+	if (pkt->iat) {
+		sleep_time.tv_sec = pkt->iat / 1e3;
+		sleep_time.tv_nsec = (pkt->iat - (sleep_time.tv_sec * 1000)) * 1e6;
+		shall_sleep = 1;
+	}
+
+	memset(buf, DATA, sizeof(buf));
+	iov.iov_len = MAX_PAYLOAD_LEN;
+	tot_bytes = 0;
+
     //With TCP, it is is sufficient to send data until the socket returns an
     //error (closed by peer)
-    while((numbytes = sendmsg(thread_info->tcp_sock_fd, &msg, 0)) > 0)
+    while((numbytes = sendmsg(thread_info->tcp_sock_fd, &msg, MSG_NOSIGNAL)) > 0) {
             tot_bytes += numbytes;
+
+			if (shall_sleep)
+				nanosleep(&sleep_time, NULL);
+	}
 
     return tot_bytes;
 }
