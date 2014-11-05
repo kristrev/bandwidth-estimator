@@ -365,6 +365,7 @@ void usage(){
     fprintf(stderr, "-t : Duration of test (in seconds). If set to 0, TCP will run idefinetly\n");
     fprintf(stderr, "-l : Payload length (in bytes), only needed with UDP\n");
     fprintf(stderr, "-s : Source IP to bind to\n");
+    fprintf(stderr, "-o : source port\n");
     fprintf(stderr, "-d : Destion IP\n");
     fprintf(stderr, "-p : Destion port\n");
     fprintf(stderr, "-r : Use TCP (reliable) instead of UDP\n");
@@ -376,7 +377,7 @@ void usage(){
 int main(int argc, char *argv[]){
     uint8_t use_tcp = 0, num_conn_retries = 0;
     uint16_t bandwidth = 0, duration = 0, payload_len = 0, iat = 0;
-    char *src_ip = NULL, *sender_ip = NULL, *sender_port = NULL, 
+    char *src_ip = NULL, *src_port = NULL, *sender_ip = NULL, *sender_port = NULL, 
          *file_name = NULL;
     int32_t retval, socket_fd = -1, socktype = SOCK_DGRAM;
     struct sockaddr_storage sender_addr;
@@ -384,7 +385,7 @@ int main(int argc, char *argv[]){
     char addr_presentation[INET6_ADDRSTRLEN];
     FILE *output_file = NULL;
 
-    while((retval = getopt(argc, argv, "b:t:l:s:d:p:w:i:r")) != -1){
+    while((retval = getopt(argc, argv, "b:t:l:s:o:d:p:w:i:r")) != -1){
         switch(retval){
             case 'b':
                 bandwidth = atoi(optarg);
@@ -397,6 +398,9 @@ int main(int argc, char *argv[]){
                 break;
             case 's':
                 src_ip = optarg;
+                break;
+            case 'o':
+                src_port = optarg;
                 break;
             case 'd':
                 sender_ip = optarg;
@@ -442,13 +446,13 @@ int main(int argc, char *argv[]){
 
     //Use stderr for all non-essential information
     fprintf(stderr, "Bandwidth %d Mbit/s, Duration %d sec, Payload length " 
-            "%d bytes, Source IP %s\n", bandwidth, duration, payload_len, src_ip);
+            "%d bytes, Source IP %s:%s\n", bandwidth, duration, payload_len, src_ip, src_port);
 
     if(use_tcp)
         socktype = SOCK_STREAM;
 
     //Bind network socket
-    if((socket_fd = bind_local(src_ip, NULL, socktype)) == -1){
+    if((socket_fd = bind_local(src_ip, src_port, socktype)) == -1){
         fprintf(stderr, "Binding to local IP failed\n");
         exit(EXIT_FAILURE);
     }
@@ -503,7 +507,7 @@ int main(int argc, char *argv[]){
 			if (!retval)
 				break;
 			else
-				socket_fd = bind_local(src_ip, NULL, socktype);
+				socket_fd = bind_local(src_ip, src_port, socktype);
 
 			//Abort if we fail to create socket
 			if (socket_fd == -1)

@@ -46,6 +46,8 @@ struct thread_info{
     uint16_t bandwidth;
     uint16_t duration;
     uint16_t payload_len;
+    //I am a bit lazy, so just store it instead of multiple lookups
+    uint16_t remote_port;
     pthread_cond_t new_session;
     pthread_mutex_t new_session_mutex;
 };
@@ -123,6 +125,7 @@ uint64_t generate_tcp_traffic(struct thread_info *thread_info){
 	struct new_session_pkt *pkt = (struct new_session_pkt*) buf;
 	struct timespec sleep_time;
 	uint8_t shall_sleep = 0;
+    uint16_t *remote_port_payload = NULL;
 
     memset(&msg, 0, sizeof(struct msghdr));
     memset(&iov, 0, sizeof(struct iovec));
@@ -155,6 +158,9 @@ uint64_t generate_tcp_traffic(struct thread_info *thread_info){
 	memset(buf, DATA, sizeof(buf));
 	iov.iov_len = MAX_PAYLOAD_LEN;
 	tot_bytes = 0;
+
+    remote_port_payload = (uint16_t*) buf;
+    *remote_port_payload = thread_info->remote_port;
 
     //With TCP, it is is sufficient to send data until the socket returns an
     //error (closed by peer)
@@ -421,6 +427,7 @@ void network_event_loop(int32_t udp_sock_fd, int32_t tcp_sock_fd){
                     
                     //Signal thread that it has work to do
                     pthread_mutex_lock(&(thread_infos[i]->new_session_mutex));
+                    thread_infos[i]->remote_port = recv_port;
                     thread_infos[i]->status = RUNNING;
                     pthread_cond_signal(&(thread_infos[i]->new_session));
                     pthread_mutex_unlock(&(thread_infos[i]->new_session_mutex));
