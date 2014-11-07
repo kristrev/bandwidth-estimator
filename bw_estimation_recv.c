@@ -384,6 +384,7 @@ int main(int argc, char *argv[]){
     socklen_t sender_addr_len = 0;
     char addr_presentation[INET6_ADDRSTRLEN];
     FILE *output_file = NULL;
+    struct timeval t0;
 
     while((retval = getopt(argc, argv, "b:t:l:s:o:d:p:w:i:r")) != -1){
         switch(retval){
@@ -452,10 +453,10 @@ int main(int argc, char *argv[]){
         socktype = SOCK_STREAM;
 
     //Bind network socket
-    if((socket_fd = bind_local(src_ip, src_port, socktype)) == -1){
+    /*if((socket_fd = bind_local(src_ip, src_port, socktype)) == -1){
         fprintf(stderr, "Binding to local IP failed\n");
         exit(EXIT_FAILURE);
-    }
+    }*/
 
     fprintf(stderr, "Network socket %d\n", socket_fd);
 
@@ -483,6 +484,24 @@ int main(int argc, char *argv[]){
         //I could use connect with UDP too, but I have some bad experiences with
         //side-effects of doing that.
 		while (1) {
+            if (socket_fd == -1) {
+                socket_fd = bind_local(src_ip, src_port, socktype);
+
+                if (socket_fd == -1) {
+                    printf("Failed to bind socket\n");
+                    
+                    if (output_file) {
+                        gettimeofday(&t0, NULL);
+                        fprintf(output_file, "%.6f %d\n", t0.tv_sec +
+                        t0.tv_usec/1000000.0, -3);
+                        fflush(output_file);
+                    }
+
+                    sleep(5);
+                    continue;
+                }
+            }
+
 	        if(sender_addr.ss_family == AF_INET)
 		        retval = connect(socket_fd, (struct sockaddr *) &sender_addr, 
 			            sizeof(struct sockaddr_in));
@@ -492,27 +511,22 @@ int main(int argc, char *argv[]){
 
 	        if(retval < 0){
 		        fprintf(stderr, "Could not connect to sender, aborting\n");
-				if (num_conn_retries++ < NUM_CONN_ATTEMPTS) {
-				    sleep(5);
-					continue;
-				} else {
-					exit(EXIT_FAILURE);
-				}
-			}
+
+                if(output_file) {
+                    gettimeofday(&t0, NULL);
+                    fprintf(output_file, "%.6f %d\n", t0.tv_sec +
+                    t0.tv_usec/1000000.0, -2);
+                    fflush(output_file);
+                }
+
+                sleep(5);
+                continue;
+            }
 
 			retval = network_loop_tcp(socket_fd, duration, output_file, iat,
 					&sender_addr, sender_addr_len);
-
-			//Break loop on clean exit, retry if not
-			if (!retval)
-				break;
-			else
-				socket_fd = bind_local(src_ip, src_port, socktype);
-
-			//Abort if we fail to create socket
-			if (socket_fd == -1)
-				exit(EXIT_FAILURE);
 		}
+
     } else
         network_loop_udp(socket_fd, bandwidth, duration, payload_len, &sender_addr, 
                 sender_addr_len, output_file);
