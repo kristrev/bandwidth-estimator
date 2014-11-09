@@ -25,6 +25,7 @@
 #include <netdb.h>
 #include <string.h>
 #include <arpa/inet.h>
+#include <linux/if.h>
 
 #include "bw_estimation_recv.h"
 #include "bw_estimation_packets.h"
@@ -305,7 +306,7 @@ void network_loop_udp(int32_t udp_sock_fd, int16_t bandwidth, int16_t duration,
 }
 
 //Bind the local socket. Should work with both IPv4 and IPv6
-int bind_local(char *local_addr, char *local_port, int socktype){
+int bind_local(char *local_addr, char *local_port, int socktype, char *ifname){
   struct addrinfo hints, *info, *p;
   int sockfd;
   int rv;
@@ -336,6 +337,15 @@ int bind_local(char *local_addr, char *local_port, int socktype){
       close(sockfd);
       fprintf(stderr, "Setsockopt (timestamp)");
       continue;
+    }
+
+    if (ifname != NULL) {
+        rv = setsockopt(sockfd, SOL_SOCKET, SO_BINDTODEVICE, ifname, strlen(ifname));
+        if (rv) {
+            close(sockfd);
+            fprintf(stderr, "SO_BINDTODEVICE");
+            return -1;
+        }
     }
 
     if(bind(sockfd, p->ai_addr, p->ai_addrlen) == -1){
@@ -371,6 +381,7 @@ void usage(){
     fprintf(stderr, "-r : Use TCP (reliable) instead of UDP\n");
     fprintf(stderr, "-w : Provide an optional filename for writing the "\
             "packet receive times\n");
+    fprintf(stderr, "-n : Bind to device\n");
 	fprintf(stderr, "-i : ms between send() calls (TCP only)\n");
 }
 
@@ -378,7 +389,8 @@ int main(int argc, char *argv[]){
     uint8_t use_tcp = 0, num_conn_retries = 0;
     uint16_t bandwidth = 0, duration = 0, payload_len = 0, iat = 0;
     char *src_ip = NULL, *src_port = NULL, *sender_ip = NULL, *sender_port = NULL, 
-         *file_name = NULL;
+         *file_name = NULL, *ifname = NULL;
+    //char iface_name[IFNAMSIZ];
     int32_t retval, socket_fd = -1, socktype = SOCK_DGRAM;
     struct sockaddr_storage sender_addr;
     socklen_t sender_addr_len = 0;
@@ -386,7 +398,7 @@ int main(int argc, char *argv[]){
     FILE *output_file = NULL;
     struct timeval t0;
 
-    while((retval = getopt(argc, argv, "b:t:l:s:o:d:p:w:i:r")) != -1){
+    while((retval = getopt(argc, argv, "b:t:l:s:o:d:p:w:i:n:r")) != -1){
         switch(retval){
             case 'b':
                 bandwidth = atoi(optarg);
@@ -418,13 +430,16 @@ int main(int argc, char *argv[]){
 			case 'i':
 				iat = atoi(optarg);
 				break;
+            case 'n':
+                ifname = optarg;
+                break;
             default:
                 usage();
                 exit(EXIT_FAILURE);
         }
     }
 
-    if((!use_tcp && duration == 0) || src_ip == NULL || sender_ip == NULL ||
+    if((!use_tcp && duration == 0) || (src_ip == NULL && ifname == NULL) || sender_ip == NULL ||
 			sender_port == NULL){
         usage();
         exit(EXIT_FAILURE);
@@ -485,7 +500,8 @@ int main(int argc, char *argv[]){
         //side-effects of doing that.
 		while (1) {
             if (socket_fd == -1) {
-                socket_fd = bind_local(src_ip, src_port, socktype);
+                printf("Will get socket\n");
+                socket_fd = bind_local(src_ip, src_port, socktype, ifname);
 
                 if (socket_fd == -1) {
                     printf("Failed to bind socket\n");
@@ -502,6 +518,7 @@ int main(int argc, char *argv[]){
                 }
             }
 
+            printf("Ready to connect on socket %d\n", socket_fd);
 	        if(sender_addr.ss_family == AF_INET)
 		        retval = connect(socket_fd, (struct sockaddr *) &sender_addr, 
 			            sizeof(struct sockaddr_in));
@@ -511,6 +528,7 @@ int main(int argc, char *argv[]){
 
 	        if(retval < 0){
 		        fprintf(stderr, "Could not connect to sender, aborting\n");
+                perror("connect()");
 
                 if(output_file) {
                     gettimeofday(&t0, NULL);
@@ -518,18 +536,24 @@ int main(int argc, char *argv[]){
                     t0.tv_usec/1000000.0, -2);
                     fflush(output_file);
                 }
-
+               
+                close(socket_fd);
+                socket_fd = -1;
                 sleep(5);
                 continue;
             }
 
+            printf("Will receive data\n");
 			retval = network_loop_tcp(socket_fd, duration, output_file, iat,
 					&sender_addr, sender_addr_len);
+
+            if (retval < 0)
+                socket_fd = -1;
 		}
 
-    } else
+    } /*else
         network_loop_udp(socket_fd, bandwidth, duration, payload_len, &sender_addr, 
-                sender_addr_len, output_file);
+                sender_addr_len, output_file);*/
 
     exit(EXIT_SUCCESS);
 }
