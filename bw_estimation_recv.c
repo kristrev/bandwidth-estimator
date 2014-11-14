@@ -67,7 +67,7 @@ socklen_t fill_sender_addr(struct sockaddr_storage *sender_addr,
 //Returns -1 when socket fails, 0 otherwise
 int8_t network_loop_tcp(int32_t tcp_sock_fd, uint16_t duration, FILE *output_file,
 		uint16_t iat, struct sockaddr_storage *sender_addr,
-		socklen_t sender_addr_len){
+		socklen_t sender_addr_len, char *interface_name){
     //Related to select
     fd_set recv_set;
     fd_set recv_set_copy;
@@ -76,7 +76,7 @@ int8_t network_loop_tcp(int32_t tcp_sock_fd, uint16_t duration, FILE *output_fil
     size_t total_number_bytes = 0;
 
     //Estimation
-    struct timeval t0, t1;
+    struct timeval t0, t1, timeout;
     double data_interval;
     double estimated_bandwidth;
 
@@ -120,10 +120,29 @@ int8_t network_loop_tcp(int32_t tcp_sock_fd, uint16_t duration, FILE *output_fil
 
     while(1){
         recv_set_copy = recv_set;
-        retval = select(fdmax, &recv_set_copy, NULL, NULL, NULL); 
+
+		if (interface_name) {
+			timeout.tv_sec = 1;
+			timeout.tv_usec = 0;
+	        retval = select(fdmax, &recv_set_copy, NULL, NULL, &timeout); 
+		} else {
+	        retval = select(fdmax, &recv_set_copy, NULL, NULL, NULL); 
+		}
+
+
+		if (retval == 0) {
+			if(!if_nametoindex(interface_name)) {
+				printf("Interface down\n");
+				return -1;
+			} else {
+				continue;
+			}
+		}
 
         iov.iov_len = sizeof(buf);
         numbytes = recvmsg(tcp_sock_fd, &msg, 0);
+
+		printf("Recvmsg %d\n", numbytes);
 
 		gettimeofday(&t1, NULL);
 
@@ -383,10 +402,11 @@ void usage(){
             "packet receive times\n");
     fprintf(stderr, "-n : Bind to device\n");
 	fprintf(stderr, "-i : ms between send() calls (TCP only)\n");
+	fprintf(stderr, "-z : daemonize program\n");
 }
 
 int main(int argc, char *argv[]){
-    uint8_t use_tcp = 0, num_conn_retries = 0;
+    uint8_t use_tcp = 0, num_conn_retries = 0, daemonize = 0;
     uint16_t bandwidth = 0, duration = 0, payload_len = 0, iat = 0;
     char *src_ip = NULL, *src_port = NULL, *sender_ip = NULL, *sender_port = NULL, 
          *file_name = NULL, *ifname = NULL;
@@ -398,7 +418,7 @@ int main(int argc, char *argv[]){
     FILE *output_file = NULL;
     struct timeval t0;
 
-    while((retval = getopt(argc, argv, "b:t:l:s:o:d:p:w:i:n:r")) != -1){
+    while((retval = getopt(argc, argv, "b:t:l:s:o:d:p:w:i:n:rz")) != -1){
         switch(retval){
             case 'b':
                 bandwidth = atoi(optarg);
@@ -433,6 +453,9 @@ int main(int argc, char *argv[]){
             case 'n':
                 ifname = optarg;
                 break;
+			case 'z':
+				daemonize = 1;
+				break;
             default:
                 usage();
                 exit(EXIT_FAILURE);
@@ -495,16 +518,20 @@ int main(int argc, char *argv[]){
         fprintf(stderr, "Sender (IPv6) %s:%s\n", addr_presentation, sender_port);
     }
 
+	if (daemonize)
+		if(daemon(0, 0) == -1){
+            perror("Could not daemonize bw_recv: ");
+            exit(EXIT_FAILURE);
+        }
+
     if(use_tcp){
         //I could use connect with UDP too, but I have some bad experiences with
         //side-effects of doing that.
 		while (1) {
             if (socket_fd == -1) {
-                printf("Will get socket\n");
                 socket_fd = bind_local(src_ip, src_port, socktype, ifname);
 
                 if (socket_fd == -1) {
-                    printf("Failed to bind socket\n");
                     
                     if (output_file) {
                         gettimeofday(&t0, NULL);
@@ -518,7 +545,6 @@ int main(int argc, char *argv[]){
                 }
             }
 
-            printf("Ready to connect on socket %d\n", socket_fd);
 	        if(sender_addr.ss_family == AF_INET)
 		        retval = connect(socket_fd, (struct sockaddr *) &sender_addr, 
 			            sizeof(struct sockaddr_in));
@@ -527,9 +553,6 @@ int main(int argc, char *argv[]){
 						sizeof(struct sockaddr_in6));
 
 	        if(retval < 0){
-		        fprintf(stderr, "Could not connect to sender, aborting\n");
-                perror("connect()");
-
                 if(output_file) {
                     gettimeofday(&t0, NULL);
                     fprintf(output_file, "%.6f %d\n", t0.tv_sec +
@@ -543,9 +566,8 @@ int main(int argc, char *argv[]){
                 continue;
             }
 
-            printf("Will receive data\n");
 			retval = network_loop_tcp(socket_fd, duration, output_file, iat,
-					&sender_addr, sender_addr_len);
+					&sender_addr, sender_addr_len, ifname);
 
             if (retval < 0)
                 socket_fd = -1;
