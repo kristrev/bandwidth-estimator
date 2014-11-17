@@ -478,10 +478,14 @@ int main(int argc, char *argv[]){
         exit(EXIT_FAILURE);
     }
 
-    if(file_name != NULL && ((output_file = fopen(file_name, "w")) == NULL)){
+    if(file_name != NULL && ((output_file = fopen(file_name, "a")) == NULL)){
         fprintf(stderr, "Failed to open output file\n");
         exit(EXIT_FAILURE);
     }
+
+	//Mark that this is the start of a new test
+	if (output_file)
+		fprintf(output_file, "1\n");
 
     //Use stderr for all non-essential information
     fprintf(stderr, "Bandwidth %d Mbit/s, Duration %d sec, Payload length " 
