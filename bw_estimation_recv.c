@@ -573,8 +573,10 @@ int main(int argc, char *argv[]){
 			retval = network_loop_tcp(socket_fd, duration, output_file, iat,
 					&sender_addr, sender_addr_len, ifname);
 
-            if (retval < 0)
+            if (retval < 0) {
+				close(socket_fd);
                 socket_fd = -1;
+			}
 		}
 
     } /*else
