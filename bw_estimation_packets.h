@@ -18,7 +18,7 @@
 #include <stdint.h>
 
 //To be on the safe size wrt headers and stuff
-#define MAX_PAYLOAD_LEN 1400
+#define MAX_PAYLOAD_LEN 1000
 
 typedef enum{
     NEW_SESSION=0, //The sender should start a new send session
